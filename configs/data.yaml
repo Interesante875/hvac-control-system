@@ -1,0 +1,53 @@
+# Data-generation settings. Every step is deterministic given this file and
+# configs/stations.yaml, so the generated data/ tree is gitignored and rebuilt
+# with ./scripts/prepare_all.sh.
+
+weather:
+  # A new 30-day strip starts every `every_days` days through the year at each
+  # station, so each station contributes ~24 strips across all seasons.
+  every_days: 14
+  offset_days: 0
+
+buildings:
+  # Seeds are well clear of the kit's own (0..~10 for the shipped set, 500+ in
+  # its README examples).
+  train: {start_seed: 2000, count: 40}
+  val:   {start_seed: 9000, count: 6}
+  shape: composite
+  # The shipped buildings are noticeably smaller than the kit generator's
+  # DEFAULT_RANGES (width 318-430 vs 400-700). The task says the hidden
+  # buildings come from "the same generator and parameter ranges", which is
+  # ambiguous between the two, so draw from both. Larger buildings have more
+  # zones and AHUs and cost proportionally more to simulate.
+  profile_mix: {shipped: 0.75, generator: 0.25}
+  profiles:
+    shipped:
+      width: [310, 440]
+      height: [180, 310]
+      num_floors: [2, 4]
+      min_room_size: [25, 36]
+      room_size_span: [11, 16]
+      shape_ratio: [0.28, 0.40]
+      composite_coverage: [0.65, 0.85]
+      num_ahus: [3, 7]
+      occupants_per_zone: [1, 2]
+    generator:   # the kit's DEFAULT_RANGES in run_floor_generator.py
+      width: [400, 700]
+      height: [300, 500]
+      num_floors: [2, 4]
+      min_room_size: [30, 60]
+      room_size_span: [11, 16]
+      shape_ratio: [0.28, 0.40]
+      composite_coverage: [0.65, 0.85]
+      num_ahus: [3, 7]
+      occupants_per_zone: [1, 2]
+
+splits:
+  seed: 7
+  # Each train building gets this many strips, drawn from train stations with
+  # no station repeated until all have been used (like the kit's pairing, which
+  # gives each building one strip per station).
+  train_strips_per_building: 8
+  # Each val building is paired with one strip from every val station, which
+  # mirrors the hidden test: 6 unseen buildings x 5 unseen stations = 30.
+  val_strips_per_station: 1

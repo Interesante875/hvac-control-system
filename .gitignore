@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+.ipynb_checkpoints/
+
+# Generated data. Everything here is rebuilt by scripts/prepare_all.sh; only
+# the small manifests and the downloaded weather are committed, so splits are
+# stable and do not depend on the weather API staying the same.
+data/scenarios/
+data/rollouts/
+data/weather/strips/

@@ -1,0 +1,3 @@
+[submodule "external/starter-kit"]
+	path = external/starter-kit
+	url = https://github.com/smart-buildings-2026/starter-kit

@@ -1,0 +1,25 @@
+name: building_02059
+seed: 2059
+floor_plan:
+  width: 613
+  height: 322
+  num_floors: 3
+  min_room_size: 43
+  max_room_size: 56
+  building_shape: composite
+  shape_ratio: 0.3497554082742509
+  composite_coverage: 0.6881319644159802
+  composite_style: architectural
+ahu:
+  num_ahus: 6
+simulation:
+  start_timestamp: 2023-07-10 06:00
+  num_days_in_episode: 30
+  occupants_per_zone: 2
+materials:
+  exterior_cv_conductivity: 0.2766
+  exterior_cv_density: 2052.1251
+  interior_mass_cv_density: 29.3696
+  interior_wall_cv_conductivity: 0.5173
+  interior_wall_cv_density: 139.4934
+  exterior_cv_heat_capacity: 945.8654

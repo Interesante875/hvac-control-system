@@ -1,0 +1,25 @@
+name: building_09013
+seed: 9013
+floor_plan:
+  width: 588
+  height: 486
+  num_floors: 3
+  min_room_size: 57
+  max_room_size: 72
+  building_shape: composite
+  shape_ratio: 0.3795323978071994
+  composite_coverage: 0.6740341192464809
+  composite_style: architectural
+ahu:
+  num_ahus: 3
+simulation:
+  start_timestamp: 2023-07-10 06:00
+  num_days_in_episode: 30
+  occupants_per_zone: 2
+materials:
+  exterior_cv_conductivity: 0.1714
+  exterior_cv_density: 480.7649
+  interior_mass_cv_density: 20.6637
+  interior_wall_cv_conductivity: 0.5101
+  interior_wall_cv_density: 135.247
+  exterior_cv_heat_capacity: 975.8847

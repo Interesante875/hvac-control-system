@@ -1,0 +1,47 @@
+# Weather stations used to build training / validation weather strips.
+#
+# `shipped` stations come with the starter kit (recorded 2023 station data).
+# `extra` stations are fetched by scripts/fetch_weather.py from the Open-Meteo
+# historical archive (ERA5 reanalysis, 2023, local time), to cover climates the
+# kit does not: marine, monsoon, hot-humid, very cold continental, high
+# altitude, southern hemisphere. Reanalysis is smoother than a station record
+# (fewer spikes), which is fine for training but worth knowing.
+#
+# `split` decides where a station's strips go:
+#   train: strips available for training scenarios
+#   val:   held out entirely, so validation measures *unseen-climate* transfer,
+#          which is what the hidden test set does.
+# The competition evaluates on unseen buildings x unseen weather, so the val
+# split also uses unseen buildings (see configs/data.yaml).
+
+year: 2023
+
+shipped:
+  atlanta:     {split: train}
+  denver:      {split: train}
+  fairbanks:   {split: train}
+  phoenix:     {split: train}
+  singapore:   {split: train}
+  minneapolis: {split: val}     # shipped as generator input, unused by the 30 scenarios
+
+extra:
+  seattle:       {lat: 47.61,  lon: -122.33, split: train}   # Csb marine
+  miami:         {lat: 25.76,  lon: -80.19,  split: train}   # Am tropical
+  chicago:       {lat: 41.88,  lon: -87.63,  split: train}   # Dfa continental
+  boston:        {lat: 42.36,  lon: -71.06,  split: train}   # Dfa/Cfa
+  san_francisco: {lat: 37.77,  lon: -122.42, split: train}   # Csb mild
+  winnipeg:      {lat: 49.90,  lon: -97.14,  split: train}   # Dfb very cold
+  dubai:         {lat: 25.20,  lon: 55.27,   split: train}   # BWh hot humid desert
+  mumbai:        {lat: 19.08,  lon: 72.88,   split: train}   # Am monsoon
+  reykjavik:     {lat: 64.15,  lon: -21.94,  split: train}   # Cfc cool all year
+  moscow:        {lat: 55.76,  lon: 37.62,   split: train}   # Dfb
+  madrid:        {lat: 40.42,  lon: -3.70,   split: train}   # Csa / BSk
+  tokyo:         {lat: 35.68,  lon: 139.69,  split: train}   # Cfa
+  sydney:        {lat: -33.87, lon: 151.21,  split: train}   # Cfa, southern hemisphere
+  bogota:        {lat: 4.71,   lon: -74.07,  split: train}   # Cfb highland, flat year
+  cairo:         {lat: 30.04,  lon: 31.24,   split: train}   # BWh
+  houston:       {lat: 29.76,  lon: -95.37,  split: val}     # Cfa hot humid
+  las_vegas:     {lat: 36.17,  lon: -115.14, split: val}     # BWh hot dry
+  anchorage:     {lat: 61.22,  lon: -149.90, split: val}     # Dsc/Dfc cold
+  london:        {lat: 51.51,  lon: -0.13,   split: val}     # Cfb mild
+  albuquerque:   {lat: 35.08,  lon: -106.65, split: train}   # BSk high desert

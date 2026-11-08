@@ -1,0 +1,25 @@
+name: building_02011
+seed: 2011
+floor_plan:
+  width: 373
+  height: 259
+  num_floors: 2
+  min_room_size: 29
+  max_room_size: 40
+  building_shape: composite
+  shape_ratio: 0.3586783817643509
+  composite_coverage: 0.6535161231355114
+  composite_style: architectural
+ahu:
+  num_ahus: 4
+simulation:
+  start_timestamp: 2023-07-10 06:00
+  num_days_in_episode: 30
+  occupants_per_zone: 1
+materials:
+  exterior_cv_conductivity: 0.2551
+  exterior_cv_density: 2079.1274
+  interior_mass_cv_density: 10.8011
+  interior_wall_cv_conductivity: 0.5488
+  interior_wall_cv_density: 285.8006
+  exterior_cv_heat_capacity: 905.6266
