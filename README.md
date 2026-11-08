@@ -114,6 +114,48 @@ r = load_rollout("data/rollouts/val/building_09001/houston_d0924/pid_water.npz")
 df = pd.DataFrame(zone_table(r))
 ```
 
+## Feature encoding
+
+The raw observation is not usable as model input as delivered (details in
+`hvacdata/features.py` and the data audit report):
+
+- **Mixed units.** The env's normaliser matches field names *exactly* against a
+  13-entry table and passes everything else through raw. Zone temperature
+  arrives z-scored while the zone's own setpoints arrive in kelvin; static
+  pressure is 0–2000 Pa, occupancy a head count, request counts equal the
+  number of zones served.
+- **Redundancy.** Hour-of-day is 12 phase-shifted sin/cos pairs of the same
+  24 h cycle (24 columns, rank 2), likewise day-of-week; AHU sensors equal their
+  setpoints; three fan flags are identical; outside air is repeated per AHU; the
+  per-zone airflow setpoint is constant.
+- **Variable shape.** Length and positions change per building.
+
+`hvacdata.features.BuildingEncoder(meta)` turns each observation into
+`zone` (V × 26) and `glob` (16) arrays in fixed physical scales: the zone's
+state relative to its own comfort band (including the reward's exact
+shortfall curve), 5-minute and 1-hour changes, its distance to the worst zone
+on its AHU, damper/reheat, floor area and facade share (from the floor plan
+in the metadata), its AHU and the hot-water loop; plus outdoor temperature,
+one time-of-day and one day-of-week pair, schedule (including hours until
+comfort mode starts), occupants per zone, and building size. It needs only the
+observation and the metadata a policy receives, so the same class serves
+offline training and a submitted policy (0.1 ms per step).
+
+```bash
+python scripts/build_features.py --tag val    # data/features/val/{zone,step,zones_static}/*.parquet
+```
+
+Zone rows also carry the commanded actions in physical units and targets at
+t+1 (`y_dtemp`, `y_dtemp_1h`, `y_shortfall`); step rows carry the reward split
+into comfort, cost and carbon terms.
+
+## Analysis
+
+`analysis/static_analysis.py` (weather and buildings), then
+`analysis/rollout_analysis.py <tag>` (encoding audit, reward anatomy, where
+comfort is lost, a next-hour temperature model raw vs re-encoded, shift between
+splits), then `analysis/export_dashboard.py` writes the report's data.
+
 ## Things worth knowing about the simulator
 
 Some of these are in the kit's docs and some were found while building this:

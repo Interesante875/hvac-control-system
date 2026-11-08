@@ -1,0 +1,662 @@
+<meta name="dash-one-writer">
+<style>
+  .hv { display: grid; gap: var(--cds-gap-xl); font-family: var(--font-anthropic-sans); max-width: 72rem; margin-inline: auto; }
+  .hv-head { display: grid; gap: var(--cds-gap-sm); }
+  .hv-title { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); margin: 0; text-wrap: balance; }
+  .hv-take { margin: 0; color: var(--color-fg-muted); font-size: var(--cds-font-size-body); max-width: 62ch; line-height: 1.5; }
+  .hv-take b, .hv-note b, .hv-tile b { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .hv-tiles { display: grid; gap: var(--cds-gap-md); grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); }
+  .hv-tile { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); display: grid; gap: var(--cds-gap-xs); align-content: start; }
+  .hv-tile .lab { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .hv-tile .big { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .hv-tile .sub { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .hv-sec { display: grid; gap: var(--cds-gap-md); }
+  .hv-sec > h2 { font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); margin: 0; }
+  .hv-sec > p { margin: 0; color: var(--color-fg-muted); max-width: 70ch; line-height: 1.5; }
+  .hv-grid { display: grid; gap: var(--cds-gap-md); grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); }
+  .hv-card { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); display: grid; gap: var(--cds-gap-sm); align-content: start; min-width: 0; }
+  .hv-card h3 { font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); margin: 0; }
+  .hv-note { margin: 0; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); line-height: 1.45; }
+  .hv-chart { position: relative; min-height: 15rem; min-width: 0; }
+  .hv-chart.tall { min-height: 19rem; }
+  .hv-chart svg { display: block; overflow: visible; }
+  .hv-chart text { fill: var(--color-fg-muted); font-size: var(--cds-font-size-caption); font-family: var(--font-anthropic-sans); }
+  .hv-legend { display: flex; flex-wrap: wrap; gap: var(--cds-gap-xs) var(--cds-gap-md); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin: 0; padding: 0; list-style: none; }
+  .hv-legend li { display: inline-flex; align-items: center; gap: 0.375rem; }
+  .hv-sw { width: 0.625rem; height: 0.625rem; border-radius: 2px; display: inline-block; background: var(--cds-chart-muted); }
+  .hv-sw.line { height: 2px; width: 0.875rem; border-radius: 1px; }
+  .hv-tip { position: absolute; pointer-events: none; background: var(--cds-surface-popover); border: 1px solid var(--cds-border); border-radius: var(--cds-radius); box-shadow: var(--cds-shadow-popover); padding: var(--cds-pad-xs) var(--cds-pad-sm); font-size: var(--cds-font-size-caption); white-space: nowrap; z-index: 2; display: grid; gap: 2px; }
+  .hv-tip .hd { color: var(--cds-text-secondary); }
+  .hv-tip .row { display: flex; align-items: center; gap: 0.375rem; font-variant-numeric: tabular-nums; }
+  .hv-tablebox { max-height: 26rem; overflow: auto; min-width: 0; }
+  .hv-table { width: 100%; border-collapse: collapse; font-size: var(--cds-font-size-caption); font-variant-numeric: tabular-nums; }
+  .hv-table th { position: sticky; top: 0; background: var(--color-panel); text-align: left; font-weight: var(--cds-font-weight-medium); padding: var(--cds-pad-xs) var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); white-space: nowrap; }
+  .hv-table td { padding: var(--cds-pad-xs) var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); vertical-align: top; }
+  .hv-table td.num, .hv-table th.num { text-align: right; }
+  .hv-table td.why { color: var(--color-fg-muted); min-width: 14rem; }
+  .hv-pill { display: inline-block; padding: 0 0.5rem; border-radius: 999px; border: 1px solid var(--color-border-line); white-space: nowrap; }
+  .hv-pill.raw { color: var(--color-warn); }
+  .hv-pill.drop { color: var(--color-fg-muted); }
+  .hv-bar { display: inline-block; height: 0.5rem; border-radius: 2px; background: var(--cds-chart-muted); vertical-align: middle; margin-right: 0.375rem; }
+  .hv details { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .hv details summary { cursor: pointer; color: var(--color-fg); font-size: var(--cds-font-size-body); }
+  .hv dl { display: grid; grid-template-columns: minmax(8rem, 14rem) 1fr; gap: var(--cds-gap-xs) var(--cds-gap-md); margin: var(--cds-gap-sm) 0 0; }
+  .hv dt { color: var(--color-fg); }
+  .hv dd { margin: 0; line-height: 1.45; }
+  [data-dash-source-state=empty] { color: transparent; }
+  [data-dash-source-state=refreshing] { opacity: .5; transition: opacity var(--cds-dur-slow); }
+  .hv-fail { display: flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: inherit; height: 100%; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .hv-fail::before { content: ""; width: 0.375rem; height: 0.375rem; border-radius: 50%; background: var(--color-bad); }
+  @media (max-width: 30rem) { .hv dl { grid-template-columns: 1fr; } }
+</style>
+
+<div class="hv">
+  <header class="hv-head" id="top">
+    <h1 class="hv-title">HVAC data audit</h1>
+    <p class="hv-take">The controller's observation needs re-encoding before any model uses it. <b data-draw="h-raw" data-source="headline" data-field="field_types_raw">—</b> of <b data-draw="h-types" data-source="headline" data-field="field_types">—</b> field types skip the simulator's normaliser and arrive in raw units, and on unseen buildings in unseen climates the re-encoded features lift a neural network's next-hour zone-temperature R² from <b data-draw="h-mlp-raw" data-source="headline" data-field="r2_mlp_raw">—</b> to <b data-draw="h-mlp-enc" data-source="headline" data-field="r2_mlp_enc">—</b>.</p>
+  </header>
+
+  <section class="hv-tiles" aria-label="Headline figures">
+    <div class="hv-tile">
+      <span class="lab">Raw observation length</span>
+      <span class="big"><span data-draw="t-dmin" data-source="headline" data-field="obs_dim_min">—</span>–<span data-draw="t-dmax" data-source="headline" data-field="obs_dim_max">—</span></span>
+      <span class="sub">values per step, changes with every building</span>
+    </div>
+    <div class="hv-tile">
+      <span class="lab">Encoded width</span>
+      <span class="big"><span data-draw="t-zf" data-source="headline" data-field="zone_features">—</span> + <span data-draw="t-gf" data-source="headline" data-field="global_features">—</span></span>
+      <span class="sub">features per zone, plus building-wide; the same for every building</span>
+    </div>
+    <div class="hv-tile">
+      <span class="lab">Field types dropped</span>
+      <span class="big" data-draw="t-drop" data-source="headline" data-field="field_types_dropped">—</span>
+      <span class="sub">duplicates, constants and copies of one signal</span>
+    </div>
+    <div class="hv-tile">
+      <span class="lab">Comfort rebuilt from sensors</span>
+      <span class="big" data-draw="t-recon" data-source="headline" data-field="recon_ratio_median">—</span>
+      <span class="sub">median ratio of rebuilt to recorded comfort penalty per episode</span>
+    </div>
+  </section>
+
+  <section class="hv-sec" id="encoding">
+    <h2>The observation arrives in mixed units</h2>
+    <p>The simulator's normaliser matches field names exactly against a 13-entry table and passes everything else through untouched. So zone temperature arrives as a z-score while the zone's own setpoints arrive in kelvin, fan pressure in pascals and occupancy as a head count. Each raw field type is listed below with what the encoder does with it.</p>
+    <div class="hv-card">
+      <h3>Every raw field type, with its spread and what happens to it</h3>
+      <p class="hv-note">Spread is the standard deviation across 7 days of the best baseline controller on the six shipped buildings. Bars share one log scale.</p>
+      <div class="hv-tablebox">
+        <table class="hv-table" data-source="obs_audit" data-row-key="field">
+          <thead><tr>
+            <th data-field="field">Field</th>
+            <th data-field="env_encoding">As delivered</th>
+            <th data-field="min" class="num">Min</th>
+            <th data-field="max" class="num">Max</th>
+            <th data-field="std">Spread (std)</th>
+            <th data-field="decision">Encoder</th>
+            <th data-field="why">Why</th>
+          </tr></thead>
+          <tbody data-draw="audit"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="hv-sec" id="dynamics">
+    <h2>Zone air temperature moves in minutes</h2>
+    <p>The reward scores the zone's air temperature, and that air has little heat capacity. When an air handler switches on, a zone can swing several kelvin within one or two 5-minute steps, then fall back when it stops. The encoder keeps both a 5-minute and a 1-hour change so a model sees the spike and the trend.</p>
+    <div class="hv-grid">
+      <div class="hv-card">
+        <h3>One zone through one winter day</h3>
+        <p class="hv-note">Shipped building 8, Fairbanks, best baseline. Shading marks steps its air handler runs; dashed lines are the zone's heating and cooling setpoints.</p>
+        <ul class="hv-legend">
+          <li><span class="hv-sw line" data-sw="0"></span>Zone air temperature</li>
+          <li><span class="hv-sw line" style="background: var(--cds-chart-reference)"></span>Setpoints</li>
+          <li><span class="hv-sw" style="background: var(--cds-chart-grid)"></span>Air handler on</li>
+        </ul>
+        <div class="hv-chart tall" data-draw="trace" data-source="temp_trace"></div>
+      </div>
+      <div class="hv-card">
+        <h3>How far zone temperature moves in one step</h3>
+        <p class="hv-note">Absolute change between consecutive 5-minute steps, all 30 zones, 30 days.</p>
+        <div class="hv-chart" data-draw="steps" data-source="step_change"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="hv-sec" id="coverage">
+    <h2>Training data covers the test conditions</h2>
+    <p>Validation uses six unseen buildings in five unseen climates, the same shape as the hidden test. Almost all of its hourly outdoor temperatures fall inside what training sees. The buildings shift more than the weather: the six validation buildings happen to be large.</p>
+    <div class="hv-grid">
+      <div class="hv-card">
+        <h3>Hourly outdoor temperature, share of hours</h3>
+        <p class="hv-note">Over the 30-day windows each split actually uses.</p>
+        <ul class="hv-legend">
+          <li><span class="hv-sw line" data-sw="0"></span>Shipped 30</li>
+          <li><span class="hv-sw line" data-sw="1"></span>Train 320</li>
+          <li><span class="hv-sw line" data-sw="2"></span>Validation 30</li>
+        </ul>
+        <div class="hv-chart" data-draw="whist" data-source="weather_hist"></div>
+      </div>
+      <div class="hv-card">
+        <h3>Each weather window's heating and cooling load</h3>
+        <p class="hv-note">Degree-hours over 30 days, in thousands: below 18 °C for heating, above 24 °C for cooling.</p>
+        <ul class="hv-legend">
+          <li><span class="hv-sw" data-sw="0"></span>Shipped</li>
+          <li><span class="hv-sw" data-sw="1"></span>Train</li>
+          <li><span class="hv-sw" data-sw="2"></span>Validation</li>
+        </ul>
+        <div class="hv-chart" data-draw="wscatter" data-source="weather_strips"></div>
+      </div>
+      <div class="hv-card">
+        <h3>Building size</h3>
+        <p class="hv-note">Zones against air handlers. The simulator adds one air handler per 10 zones.</p>
+        <ul class="hv-legend">
+          <li><span class="hv-sw" data-sw="0"></span>Shipped</li>
+          <li><span class="hv-sw" data-sw="1"></span>Train</li>
+          <li><span class="hv-sw" data-sw="2"></span>Validation</li>
+        </ul>
+        <div class="hv-chart" data-draw="bscatter" data-source="buildings"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="hv-sec" id="reward">
+    <h2>Where the loss comes from</h2>
+    <p>Loss per step splits into comfort, energy cost and carbon. Comfort is the largest part in every climate. In the cold, gas heating makes carbon the next largest. Comfort only counts while people are in, yet <b data-draw="empty-share" data-source="empty_share" data-field="share">—</b> of the energy and carbon loss comes while the building is empty, which a controller can cut without any comfort penalty.</p>
+    <div class="hv-grid">
+      <div class="hv-card">
+        <h3>Mean loss per step by climate</h3>
+        <p class="hv-note">Best baseline, first 7 days of each scenario. Shipped stations above, validation stations below.</p>
+        <ul class="hv-legend">
+          <li><span class="hv-sw" data-sw="0"></span>Comfort</li>
+          <li><span class="hv-sw" data-sw="1"></span>Energy cost</li>
+          <li><span class="hv-sw" data-sw="2"></span>Carbon</li>
+        </ul>
+        <div class="hv-chart tall" data-draw="rstation" data-source="reward_station"></div>
+      </div>
+      <div class="hv-card">
+        <h3>Loss while occupied and while empty</h3>
+        <p class="hv-note">Totals over all baseline episodes. Comfort is not scored when no one is in.</p>
+        <ul class="hv-legend">
+          <li><span class="hv-sw" data-sw="0"></span>Comfort</li>
+          <li><span class="hv-sw" data-sw="1"></span>Energy cost</li>
+          <li><span class="hv-sw" data-sw="2"></span>Carbon</li>
+        </ul>
+        <div class="hv-chart" data-draw="rocc" data-source="reward_occupancy"></div>
+      </div>
+      <div class="hv-card">
+        <h3>Comfort loss by hour of day</h3>
+        <p class="hv-note">Mean comfort loss per step, shipped scenarios, weekdays and weekends together. Cold climates lose most at the 06:00 start; hot ones in the afternoon. Outside 06:00–19:00 it is never scored.</p>
+        <ul class="hv-legend" data-draw="hour-legend" data-source="comfort_by_hour"></ul>
+        <div class="hv-chart" data-draw="rhour" data-source="comfort_by_hour"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="hv-sec" id="zones">
+    <h2>Which zones lose comfort</h2>
+    <p>Comfort is lost unevenly: in the median scenario the worst tenth of zones carries <b data-draw="top10" data-source="top10_median" data-field="share">—</b> of the loss. Facade exposure alone doesn't say which zones: facade-heavy zones lose most in most climates, but interior zones lose most in Atlanta, Denver and London. A controller that watches the average zone misses them, so the encoder gives each zone its own comfort shortfall and its distance to the worst zone on its air handler.</p>
+    <div class="hv-grid">
+      <div class="hv-card">
+        <h3>Comfort shortfall by facade exposure</h3>
+        <p class="hv-note">Mean per-zone shortfall while occupied, by share of the zone's edge on an exterior wall. Darker is worse; each row's worst column is outlined.</p>
+        <div class="hv-tablebox">
+          <table class="hv-table hv-heat" data-source="exposure" data-row-key="station">
+            <thead><tr>
+              <th data-field="station">Climate</th>
+              <th data-field="interior" class="num">No facade</th>
+              <th data-field="0-0.2" class="num">Up to 20%</th>
+              <th data-field="0.2-0.35" class="num">20–35%</th>
+              <th data-field="&gt;0.35" class="num">Over 35%</th>
+            </tr></thead>
+            <tbody data-draw="exposure"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="hv-card">
+        <h3>Share of comfort loss in the worst 10% of zones</h3>
+        <p class="hv-note">One dot per scenario. 10% would mean the loss is spread evenly.</p>
+        <div class="hv-chart" data-draw="conc" data-source="concentration"></div>
+      </div>
+      <div class="hv-card">
+        <h3>Comfort penalty rebuilt per zone</h3>
+        <p class="hv-note">The environment reports one comfort number per building. Rebuilding it per zone from temperature and setpoints matches the recorded total closely, so it can serve as a per-zone training signal. 1.0 is an exact match.</p>
+        <div class="hv-chart" data-draw="recon" data-source="recon"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="hv-sec" id="model">
+    <h2>Does the re-encoding help?</h2>
+    <p>A quick test: predict each zone's temperature change over the next hour. Models train on the six shipped buildings and are scored on the six unseen validation buildings in five unseen climates. Same rows, two descriptions: the raw observation slice for that zone as delivered, or the re-encoded features.</p>
+    <div class="hv-grid">
+      <div class="hv-card">
+        <h3>R² on unseen buildings and climates</h3>
+        <p class="hv-note">Higher is better; 0 is no better than predicting the average change.</p>
+        <ul class="hv-legend">
+          <li><span class="hv-sw" style="background: var(--cds-chart-muted)"></span>Raw observation</li>
+          <li><span class="hv-sw" data-sw="0"></span>Re-encoded</li>
+        </ul>
+        <div class="hv-chart" data-draw="model" data-source="model"></div>
+      </div>
+      <div class="hv-card">
+        <h3>What the re-encoded model relies on</h3>
+        <p class="hv-note">Drop in validation R² when one feature is shuffled, gradient boosting. Top 15.</p>
+        <div class="hv-chart tall" data-draw="imp" data-source="importance"></div>
+      </div>
+      <div class="hv-card">
+        <h3>Largest shift from shipped to validation</h3>
+        <p class="hv-note">Standardised mean difference per feature. Beyond ±0.5 is a large shift that a model has to generalise across.</p>
+        <div class="hv-chart tall" data-draw="shift" data-source="shift"></div>
+      </div>
+    </div>
+  </section>
+
+  <details>
+    <summary>Method and terms</summary>
+    <dl>
+      <dt>Baseline</dt><dd>The kit's best reference controller, "pid_water". Each scenario runs its first 7 days (2,016 steps), plus a copy of the shipped runs with exploration noise added to the actions. These are for analysis only: the leaderboard scores full 30-day episodes.</dd>
+      <dt>Comfort shortfall</dt><dd>Per zone: distance outside its heating/cooling band divided by 5 K, linear up to 1 and quadratic beyond, exactly as the reward computes it. The reward averages it over zones weighted by occupancy, which the controller cannot see, so the rebuilt total uses equal weights.</dd>
+      <dt>Re-encoded features</dt><dd>26 per zone (state relative to the comfort band, recent change, neighbours on the same air handler, damper and reheat, area and facade share, its air handler and the hot-water loop) and 16 building-wide (outdoor temperature, time, schedule, occupancy per zone). All use fixed physical scales, so an unseen building cannot shift them, and all can be computed inside a submitted policy from the observation and building metadata.</dd>
+      <dt>Raw observation</dt><dd>For the same zone: its 6 fields, its air handler's 15, the hot-water loop's 7 and the 51 building-wide fields, as the environment delivers them.</dd>
+      <dt>Models</dt><dd>Ridge regression, a two-layer neural network (64 units each, early stopping) and gradient boosting, from scikit-learn, without per-feature scaling, so the comparison shows what each input looks like to the model as delivered.</dd>
+    </dl>
+  </details>
+</div>
+
+<script>
+(() => {
+  const H = window.HV = {};
+  H.get = (id) => { const d = dash.data(id); return d.status === 'ok' ? d.data : null; };
+  H.fail = (el, id) => {
+    const s = dash.data(id).status;
+    el.classList.toggle('dash-skeleton', s === 'loading');
+    if (s === 'error' || s === 'connect' || s === 'declined') {
+      const f = document.createElement('div'); f.className = 'hv-fail'; f.textContent = 'Failed to load';
+      el.replaceChildren(f);
+    } else el.replaceChildren();
+  };
+  H.css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  H.tip = (el) => {
+    let t = el.querySelector(':scope > .hv-tip');
+    if (!t) { t = document.createElement('div'); t.className = 'hv-tip'; t.hidden = true; el.appendChild(t); }
+    return {
+      show(x, y, head, rows) {
+        const hd = document.createElement('div'); hd.className = 'hd'; hd.textContent = head;
+        const lines = rows.map(([color, name, val]) => {
+          const r = document.createElement('div'); r.className = 'row';
+          if (color) { const s = document.createElement('span'); s.className = 'hv-sw'; s.style.background = color; r.appendChild(s); }
+          const n = document.createElement('span'); n.textContent = name ? name + ' ' : '';
+          const v = document.createElement('b'); v.textContent = val;
+          r.append(n, v); return r;
+        });
+        t.replaceChildren(hd, ...lines); t.hidden = false;
+        const w = el.clientWidth, tw = t.offsetWidth, th = t.offsetHeight;
+        t.style.left = Math.max(0, Math.min(w - tw, x + 12)) + 'px';
+        t.style.top = Math.max(0, y - th - 8) + 'px';
+      },
+      hide() { t.hidden = true; }
+    };
+  };
+  H.svg = (el, h) => {
+    const w = Math.max(260, el.clientWidth);
+    const svg = d3.select(el).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${w} ${h}`).attr('height', h);
+    return { svg, w, h };
+  };
+  H.textW = (svg, strings) => {
+    const g = svg.append('g').attr('opacity', 0);
+    const ws = strings.map((s) => g.append('text').text(s).node().getComputedTextLength());
+    g.remove(); return d3.max(ws) || 0;
+  };
+  H.axis = (g) => g.attr('font-size', null).attr('font-family', null)
+    .call((a) => a.select('.domain').attr('stroke', 'var(--cds-chart-axis)'))
+    .call((a) => a.selectAll('.tick line').attr('stroke', 'var(--cds-chart-grid)'));
+  H.grid = (g, y, x0, x1) => g.selectAll('line').data(y.ticks(5)).join('line')
+    .attr('x1', x0).attr('x2', x1).attr('y1', (d) => y(d)).attr('y2', (d) => y(d))
+    .attr('stroke', 'var(--cds-chart-grid)');
+  H.f2 = d3.format('.2f'); H.f3 = d3.format('.3f'); H.pct = d3.format('.0%'); H.f1 = d3.format('.1f');
+  H.color = (i) => dash.colors[i % dash.colors.length];
+  H.splitColor = { kit: 0, train: 1, val: 2 };
+  H.splitName = { kit: 'Shipped', train: 'Train', val: 'Validation' };
+
+  // legend swatches take the series colors (style only)
+  dash.onData(() => {
+    document.querySelectorAll('[data-sw]').forEach((s) => { s.style.background = H.color(+s.dataset.sw); });
+  });
+
+  // simple scatter
+  H.scatter = (el, rows, o) => {
+    const { svg, w, h } = H.svg(el, 240);
+    const xs = d3.scaleLinear().domain(o.xDomain || d3.extent(rows, o.x)).nice();
+    const ys = d3.scaleLinear().domain(o.yDomain || d3.extent(rows, o.y)).nice();
+    const yl = H.textW(svg, ys.ticks(5).map(o.yFmt || String));
+    const m = { l: yl + 14, r: 12, t: 8, b: 34 };
+    xs.range([m.l, w - m.r]); ys.range([h - m.b, m.t]);
+    H.grid(svg.append('g'), ys, m.l, w - m.r);
+    svg.append('g').attr('transform', `translate(0,${h - m.b})`).call(d3.axisBottom(xs).ticks(Math.max(3, Math.floor(w / 80))).tickFormat(o.xFmt || null)).call(H.axis);
+    svg.append('g').attr('transform', `translate(${m.l},0)`).call(d3.axisLeft(ys).ticks(5).tickFormat(o.yFmt || null).tickSize(0)).call(H.axis).call((a) => a.select('.domain').remove());
+    svg.append('text').attr('x', w - m.r).attr('y', h - 4).attr('text-anchor', 'end').text(o.xLabel);
+    svg.append('text').attr('x', m.l).attr('y', m.t + 2).attr('dy', '0.7em').attr('dx', 6).text(o.yLabel);
+    const tip = H.tip(el);
+    svg.append('g').selectAll('circle').data(rows).join('circle')
+      .attr('cx', (d) => xs(o.x(d))).attr('cy', (d) => ys(o.y(d))).attr('r', o.r || 4.5)
+      .attr('fill', (d) => H.color(o.c(d))).attr('fill-opacity', 0.85)
+      .attr('stroke', 'var(--color-panel)').attr('stroke-width', 1.5)
+      .on('pointerenter pointermove', (ev, d) => { const [px, py] = d3.pointer(ev, el); tip.show(px, py, o.head(d), o.rows(d)); })
+      .on('pointerleave', () => tip.hide());
+  };
+
+  // horizontal bars, optionally stacked
+  H.hbars = (el, rows, o) => {
+    const rowH = o.rowH || 26;
+    const h = rows.length * rowH + 30;
+    const { svg, w } = H.svg(el, h);
+    const lw = H.textW(svg, rows.map(o.label));
+    const m = { l: lw + 12, r: 52, t: 4, b: 26 };
+    const total = (d) => d3.sum(o.keys, (k) => Math.max(0, o.val(d, k)));
+    const xs = d3.scaleLinear().domain([0, o.max || d3.max(rows, total) || 1]).nice().range([m.l, w - m.r]);
+    const ys = d3.scaleBand().domain(rows.map(o.label)).range([m.t, h - m.b]).padding(0.28);
+    svg.append('g').selectAll('line').data(xs.ticks(4)).join('line').attr('x1', (d) => xs(d)).attr('x2', (d) => xs(d)).attr('y1', m.t).attr('y2', h - m.b).attr('stroke', 'var(--cds-chart-grid)');
+    svg.append('g').attr('transform', `translate(0,${h - m.b})`).call(d3.axisBottom(xs).ticks(Math.max(2, Math.floor(w / 110))).tickFormat(o.fmt)).call(H.axis);
+    svg.append('g').selectAll('text').data(rows).join('text').attr('x', m.l - 8).attr('y', (d) => ys(o.label(d)) + ys.bandwidth() / 2).attr('dy', '0.35em').attr('text-anchor', 'end').text(o.label);
+    const tip = H.tip(el);
+    const g = svg.append('g');
+    rows.forEach((d) => {
+      let x = 0;
+      o.keys.forEach((k, i) => {
+        const v = Math.max(0, o.val(d, k));
+        if (v <= 0) return;
+        g.append('rect').attr('x', xs(x) + (x > 0 ? 1 : 0)).attr('y', ys(o.label(d)))
+          .attr('width', Math.max(0, xs(x + v) - xs(x) - (x > 0 ? 1 : 0))).attr('height', ys.bandwidth())
+          .attr('rx', 2).attr('fill', o.color ? o.color(d, i) : H.color(i))
+          .on('pointerenter pointermove', (ev) => { const [px, py] = d3.pointer(ev, el); tip.show(px, py, o.label(d), o.keys.map((kk, j) => [o.keys.length > 1 ? H.color(j) : null, o.names ? o.names[j] : '', o.fmtTip(o.val(d, kk))])); })
+          .on('pointerleave', () => tip.hide());
+        x += v;
+      });
+      svg.append('text').attr('x', xs(x) + 6).attr('y', ys(o.label(d)) + ys.bandwidth() / 2).attr('dy', '0.35em').text(o.fmtEnd ? o.fmtEnd(d) : o.fmt(total(d)));
+    });
+  };
+})();
+</script>
+
+<script>
+(() => {
+  const H = window.HV;
+  const set = (name, id, field, fmt) => dash.draw(name, (el) => {
+    const r = H.get(id); el.textContent = r ? fmt(r[0][field]) : '—';
+  });
+  set('h-raw', 'headline', 'field_types_raw', String);
+  set('h-types', 'headline', 'field_types', String);
+  set('h-mlp-raw', 'headline', 'r2_mlp_raw', H.f2);
+  set('h-mlp-enc', 'headline', 'r2_mlp_enc', H.f2);
+  set('t-dmin', 'headline', 'obs_dim_min', String);
+  set('t-dmax', 'headline', 'obs_dim_max', String);
+  set('t-zf', 'headline', 'zone_features', String);
+  set('t-gf', 'headline', 'global_features', String);
+  set('t-drop', 'headline', 'field_types_dropped', String);
+  set('t-recon', 'headline', 'recon_ratio_median', H.f2);
+
+  dash.calc('empty_share', {
+    inputs: ['reward_occupancy'], title: 'Energy and carbon loss while empty',
+    description: 'Share of the energy-cost and carbon loss that falls in steps with no one in the building.',
+    fn: (reward_occupancy) => {
+      const ec = reward_occupancy.filter((d) => d.term !== 'comfort_term');
+      const empty = ec.filter((d) => !d.occupied).reduce((s, d) => s + d.total, 0);
+      const all = ec.reduce((s, d) => s + d.total, 0);
+      return [{ share: all ? empty / all : null }];
+    },
+  });
+  dash.calc('top10_median', {
+    inputs: ['concentration'], title: 'Loss in the worst tenth of zones',
+    description: 'Median over scenarios of the share of comfort loss carried by the worst 10% of zones.',
+    fn: (concentration) => {
+      const s = concentration.map((d) => d.top10_share).sort((a, b) => a - b);
+      const n = s.length;
+      return [{ share: n ? (n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2) : null }];
+    },
+  });
+  set('empty-share', 'empty_share', 'share', H.pct);
+  set('top10', 'top10_median', 'share', H.pct);
+
+  // ---- audit table
+  dash.draw('audit', (tb) => {
+    const rows = H.get('obs_audit');
+    if (!rows) { tb.replaceChildren(); return; }
+    const ls = d3.scaleLog().domain([0.01, d3.max(rows, (d) => d.std)]).range([2, 80]).clamp(true);
+    const order = { 'raw (passed through)': 0, 'z-scored': 1 };
+    const sorted = rows.slice().sort((a, b) => d3.ascending(order[a.env_encoding], order[b.env_encoding]) || d3.descending(a.std, b.std));
+    tb.replaceChildren(...sorted.map((d) => {
+      const tr = document.createElement('tr');
+      const td = (txt, cls) => { const c = document.createElement('td'); if (cls) c.className = cls; c.textContent = txt; return c; };
+      const enc = td(''); const p = document.createElement('span'); p.className = 'hv-pill' + (d.env_encoding.startsWith('raw') ? ' raw' : ''); p.textContent = d.env_encoding; enc.appendChild(p);
+      const sd = td(''); const bar = document.createElement('span'); bar.className = 'hv-bar'; bar.style.width = ls(Math.max(d.std, 0.01)) + 'px'; sd.append(bar, document.createTextNode(d3.format('.3~g')(d.std)));
+      const dec = td(''); const q = document.createElement('span'); q.className = 'hv-pill' + (d.decision === 'dropped' ? ' drop' : ''); q.textContent = d.decision; dec.appendChild(q);
+      tr.append(td(d.field), enc, td(d3.format('.4~g')(d.min), 'num'), td(d3.format('.4~g')(d.max), 'num'), sd, dec, td(d.why, 'why'));
+      return tr;
+    }));
+  });
+
+  // ---- temperature trace
+  dash.draw('trace', (el) => {
+    const rows = H.get('temp_trace'); H.fail(el, 'temp_trace'); if (!rows) return;
+    const pts = rows.map((d) => ({ ...d, t: new Date(d.time + 'Z') }));
+    const { svg, w, h } = H.svg(el, 300);
+    const ys = d3.scaleLinear().domain([d3.min(pts, (d) => Math.min(d.zone_temp_c, d.heat_sp_c)) - 1, d3.max(pts, (d) => Math.max(d.zone_temp_c, d.cool_sp_c)) + 1]).nice();
+    const yl = H.textW(svg, ys.ticks(5).map((v) => v + ' °C'));
+    const m = { l: yl + 14, r: 12, t: 8, b: 26 };
+    const xs = d3.scaleUtc().domain(d3.extent(pts, (d) => d.t)).range([m.l, w - m.r]);
+    ys.range([h - m.b, m.t]);
+    const step = (xs.range()[1] - xs.range()[0]) / pts.length;
+    svg.append('g').selectAll('rect').data(pts.filter((d) => d.ahu_on)).join('rect').attr('x', (d) => xs(d.t)).attr('width', step + 0.5).attr('y', m.t).attr('height', h - m.b - m.t).attr('fill', 'var(--cds-chart-grid)');
+    H.grid(svg.append('g'), ys, m.l, w - m.r);
+    svg.append('g').attr('transform', `translate(0,${h - m.b})`).call(d3.axisBottom(xs).ticks(Math.max(3, Math.floor(w / 90))).tickFormat(d3.utcFormat('%H:%M'))).call(H.axis);
+    svg.append('g').attr('transform', `translate(${m.l},0)`).call(d3.axisLeft(ys).ticks(5).tickFormat((v) => v + ' °C').tickSize(0)).call(H.axis).call((a) => a.select('.domain').remove());
+    for (const k of ['heat_sp_c', 'cool_sp_c']) {
+      svg.append('path').datum(pts).attr('fill', 'none').attr('stroke', 'var(--cds-chart-reference)').attr('stroke-width', 1.5).attr('stroke-dasharray', '4 3')
+        .attr('d', d3.line().curve(d3.curveStepAfter).x((d) => xs(d.t)).y((d) => ys(d[k])));
+    }
+    svg.append('path').datum(pts).attr('fill', 'none').attr('stroke', H.color(0)).attr('stroke-width', 2).attr('stroke-linejoin', 'round').attr('stroke-linecap', 'round')
+      .attr('d', d3.line().x((d) => xs(d.t)).y((d) => ys(d.zone_temp_c)));
+    const tip = H.tip(el); const dot = svg.append('circle').attr('r', 4).attr('fill', H.color(0)).attr('stroke', 'var(--color-panel)').attr('stroke-width', 2).attr('visibility', 'hidden');
+    const bis = d3.bisector((d) => d.t).center;
+    svg.append('rect').attr('x', m.l).attr('y', m.t).attr('width', w - m.l - m.r).attr('height', h - m.t - m.b).attr('fill', 'transparent')
+      .on('pointermove', (ev) => { const [px, py] = d3.pointer(ev); const d = pts[bis(pts, xs.invert(px))]; dot.attr('cx', xs(d.t)).attr('cy', ys(d.zone_temp_c)).attr('visibility', 'visible');
+        tip.show(xs(d.t), ys(d.zone_temp_c), d3.utcFormat('%b %-d, %H:%M')(d.t), [[H.color(0), 'Zone', H.f1(d.zone_temp_c) + ' °C'], [null, 'Band', H.f1(d.heat_sp_c) + '–' + H.f1(d.cool_sp_c) + ' °C'], [null, 'Air handler', d.ahu_on ? 'on' : 'off']]); })
+      .on('pointerleave', () => { tip.hide(); dot.attr('visibility', 'hidden'); });
+  });
+
+  // ---- step-change percentiles
+  dash.draw('steps', (el) => {
+    const rows = H.get('step_change'); H.fail(el, 'step_change'); if (!rows) return;
+    const r = rows[0];
+    const items = [['Median', r.p50], ['90th percentile', r.p90], ['99th percentile', r.p99], ['Largest', r.max]];
+    H.hbars(el, items, { keys: ['v'], label: (d) => d[0], val: (d) => d[1], fmt: (v) => v + ' K', fmtTip: (v) => H.f2(v) + ' K', fmtEnd: (d) => H.f2(d[1]) + ' K', color: (d, i) => H.color(0), rowH: 40 });
+  });
+
+  // ---- weather histogram
+  dash.draw('whist', (el) => {
+    const rows = H.get('weather_hist'); H.fail(el, 'weather_hist'); if (!rows) return;
+    const keys = [['kit', 'Shipped 30'], ['train', 'Train 320'], ['val', 'Validation 30']];
+    const { svg, w, h } = H.svg(el, 240);
+    const ys = d3.scaleLinear().domain([0, d3.max(rows, (d) => Math.max(d.kit, d.train, d.val))]).nice();
+    const yl = H.textW(svg, ys.ticks(5).map(H.pct));
+    const m = { l: yl + 14, r: 12, t: 8, b: 26 };
+    const xs = d3.scaleLinear().domain(d3.extent(rows, (d) => d.temp_c)).range([m.l, w - m.r]); ys.range([h - m.b, m.t]);
+    H.grid(svg.append('g'), ys, m.l, w - m.r);
+    svg.append('g').attr('transform', `translate(0,${h - m.b})`).call(d3.axisBottom(xs).ticks(Math.max(3, Math.floor(w / 80))).tickFormat((v) => v + ' °C')).call(H.axis);
+    svg.append('g').attr('transform', `translate(${m.l},0)`).call(d3.axisLeft(ys).ticks(5).tickFormat(H.pct).tickSize(0)).call(H.axis).call((a) => a.select('.domain').remove());
+    keys.forEach(([k], i) => svg.append('path').datum(rows).attr('fill', 'none').attr('stroke', H.color(i)).attr('stroke-width', 2).attr('stroke-linejoin', 'round').attr('d', d3.line().x((d) => xs(d.temp_c)).y((d) => ys(d[k]))));
+    const tip = H.tip(el); const rule = svg.append('line').attr('y1', m.t).attr('y2', h - m.b).attr('stroke', 'var(--cds-chart-axis)').attr('visibility', 'hidden');
+    const bis = d3.bisector((d) => d.temp_c).center;
+    svg.append('rect').attr('x', m.l).attr('y', m.t).attr('width', w - m.l - m.r).attr('height', h - m.t - m.b).attr('fill', 'transparent')
+      .on('pointermove', (ev) => { const [px] = d3.pointer(ev); const d = rows[bis(rows, xs.invert(px))]; rule.attr('x1', xs(d.temp_c)).attr('x2', xs(d.temp_c)).attr('visibility', 'visible');
+        tip.show(xs(d.temp_c), m.t + 40, H.f1(d.temp_c - 1.25) + ' to ' + H.f1(d.temp_c + 1.25) + ' °C', keys.map(([k, n], i) => [H.color(i), n, d3.format('.1%')(d[k])])); })
+      .on('pointerleave', () => { tip.hide(); rule.attr('visibility', 'hidden'); });
+  });
+
+  dash.draw('wscatter', (el) => {
+    const rows = H.get('weather_strips'); H.fail(el, 'weather_strips'); if (!rows) return;
+    const ord = { train: 0, kit: 1, val: 2 };
+    H.scatter(el, rows.slice().sort((a, b) => ord[a.split] - ord[b.split]), { x: (d) => d.hdh, y: (d) => d.cdh, c: (d) => H.splitColor[d.split], xLabel: 'Heating, thousand degree-hours', yLabel: 'Cooling', r: 4,
+      head: (d) => d.name, rows: (d) => [[H.color(H.splitColor[d.split]), H.splitName[d.split], ''], [null, 'Mean', H.f1(d.mean_c) + ' °C'], [null, 'Range', H.f1(d.min_c) + ' to ' + H.f1(d.max_c) + ' °C']] });
+  });
+
+  dash.draw('bscatter', (el) => {
+    const rows = H.get('buildings'); H.fail(el, 'buildings'); if (!rows) return;
+    H.scatter(el, rows, { x: (d) => d.n_zones, y: (d) => d.n_ahus, c: (d) => H.splitColor[d.split], xLabel: 'Zones', yLabel: 'Air handlers', xDomain: [0, d3.max(rows, (d) => d.n_zones)], yDomain: [0, d3.max(rows, (d) => d.n_ahus)],
+      head: (d) => d.name, rows: (d) => [[H.color(H.splitColor[d.split]), H.splitName[d.split], ''], [null, 'Zones', d.n_zones], [null, 'Air handlers', d.n_ahus], [null, 'Floors', d.num_floors], [null, 'Facade U', H.f2(d.facade_u) + ' W/m²K']] });
+  });
+
+  // ---- reward anatomy
+  const TERMS = ['comfort_term', 'cost_term', 'carbon_term'];
+  const TNAMES = ['Comfort', 'Energy cost', 'Carbon'];
+  dash.draw('rstation', (el) => {
+    const rows = H.get('reward_station'); H.fail(el, 'reward_station'); if (!rows) return;
+    const sorted = rows.slice().sort((a, b) => d3.ascending(a.split, b.split) || d3.descending(a.loss, b.loss));
+    H.hbars(el, sorted, { keys: TERMS, names: TNAMES, label: (d) => d.station.replace('_', ' '), val: (d, k) => -d[k], fmt: d3.format('.2~f'), fmtTip: d3.format('.4f'), fmtEnd: (d) => d3.format('.3f')(d.loss) });
+  });
+
+  dash.draw('rocc', (el) => {
+    const rows = H.get('reward_occupancy'); H.fail(el, 'reward_occupancy'); if (!rows) return;
+    const by = d3.group(rows, (d) => d.occupied);
+    const items = [true, false].filter((o) => by.has(o)).map((o) => ({ label: o ? 'Occupied' : 'Empty', ...Object.fromEntries(by.get(o).map((d) => [d.term, -d.total])) }));
+    H.hbars(el, items, { keys: TERMS, names: TNAMES, label: (d) => d.label, val: (d, k) => d[k] || 0, fmt: d3.format(',.0f'), fmtTip: d3.format(',.1f'), rowH: 48 });
+  });
+
+  dash.draw('hour-legend', (ul) => {
+    const rows = H.get('comfort_by_hour'); if (!rows) { ul.replaceChildren(); return; }
+    const st = [...new Set(rows.map((d) => d.station))];
+    ul.replaceChildren(...st.map((s, i) => { const li = document.createElement('li'); const sw = document.createElement('span'); sw.className = 'hv-sw line'; sw.style.background = H.color(i); li.append(sw, document.createTextNode(s)); return li; }));
+  });
+  dash.draw('rhour', (el) => {
+    const rows = H.get('comfort_by_hour'); H.fail(el, 'comfort_by_hour'); if (!rows) return;
+    const st = [...new Set(rows.map((d) => d.station))];
+    const { svg, w, h } = H.svg(el, 240);
+    const ys = d3.scaleLinear().domain([0, d3.max(rows, (d) => -d.comfort_term)]).nice();
+    const yl = H.textW(svg, ys.ticks(5).map(d3.format('.2~f')));
+    const m = { l: yl + 14, r: 12, t: 8, b: 26 };
+    const xs = d3.scaleLinear().domain([0, 23]).range([m.l, w - m.r]); ys.range([h - m.b, m.t]);
+    H.grid(svg.append('g'), ys, m.l, w - m.r);
+    svg.append('g').attr('transform', `translate(0,${h - m.b})`).call(d3.axisBottom(xs).ticks(Math.min(8, Math.floor(w / 60))).tickFormat((v) => String(v).padStart(2, '0') + ':00')).call(H.axis);
+    svg.append('g').attr('transform', `translate(${m.l},0)`).call(d3.axisLeft(ys).ticks(5).tickFormat(d3.format('.2~f')).tickSize(0)).call(H.axis).call((a) => a.select('.domain').remove());
+    const g = d3.group(rows, (d) => d.station);
+    st.forEach((s, i) => svg.append('path').datum(g.get(s).slice().sort((a, b) => a.hour - b.hour)).attr('fill', 'none').attr('stroke', H.color(i)).attr('stroke-width', 2).attr('stroke-linejoin', 'round').attr('d', d3.line().x((d) => xs(d.hour)).y((d) => ys(-d.comfort_term))));
+    const tip = H.tip(el); const rule = svg.append('line').attr('y1', m.t).attr('y2', h - m.b).attr('stroke', 'var(--cds-chart-axis)').attr('visibility', 'hidden');
+    svg.append('rect').attr('x', m.l).attr('y', m.t).attr('width', w - m.l - m.r).attr('height', h - m.t - m.b).attr('fill', 'transparent')
+      .on('pointermove', (ev) => { const [px] = d3.pointer(ev); const hr = Math.round(xs.invert(px)); rule.attr('x1', xs(hr)).attr('x2', xs(hr)).attr('visibility', 'visible');
+        tip.show(xs(hr), m.t + 40, String(hr).padStart(2, '0') + ':00', st.map((s, i) => { const d = g.get(s).find((r) => r.hour === hr); return [H.color(i), s, d ? d3.format('.4f')(-d.comfort_term) : '—']; })); })
+      .on('pointerleave', () => { tip.hide(); rule.attr('visibility', 'hidden'); });
+  });
+
+  // ---- zones
+  const BINS = ['interior', '0-0.2', '0.2-0.35', '>0.35'];
+  dash.draw('exposure', (tb) => {
+    const rows = H.get('exposure');
+    if (!rows) { tb.replaceChildren(); return; }
+    const mx = d3.max(rows, (d) => d3.max(BINS, (b) => d[b] ?? 0)) || 1;
+    const lo = H.css('--color-panel') || '#fff';
+    const shade = d3.interpolateRgb(lo, dash.colors[0]);
+    const sorted = rows.slice().sort((a, b) => d3.ascending(a.split, b.split) || d3.ascending(a.station, b.station));
+    tb.replaceChildren(...sorted.map((d) => {
+      const tr = document.createElement('tr');
+      const name = document.createElement('td'); name.textContent = d.station; tr.appendChild(name);
+      const worst = d3.max(BINS, (b) => d[b] ?? -1);
+      BINS.forEach((b) => {
+        const td = document.createElement('td'); td.className = 'num';
+        const v = d[b];
+        if (v == null) { td.textContent = ''; tr.appendChild(td); return; }
+        const t = 0.12 + 0.88 * (v / mx);
+        td.style.background = shade(t);
+        td.style.color = t > 0.55 ? 'var(--color-bg)' : 'var(--color-fg)';
+        if (v === worst) td.style.boxShadow = 'inset 0 0 0 2px var(--color-fg)';
+        td.textContent = d3.format('.3f')(v);
+        tr.appendChild(td);
+      });
+      return tr;
+    }));
+  });
+
+  const dotStrip = (el, rows, o) => {
+    const st = [...new Set(rows.map((d) => d.station))];
+    const h = st.length * 34 + 34;
+    const { svg, w } = H.svg(el, h);
+    const lw = H.textW(svg, st.map((s) => s.replace('_', ' ')));
+    const m = { l: lw + 12, r: 16, t: 6, b: 26 };
+    const xs = d3.scaleLinear().domain(o.domain(rows)).nice().range([m.l, w - m.r]);
+    const ys = d3.scalePoint().domain(st).range([m.t + 12, h - m.b - 12]);
+    svg.append('g').selectAll('line').data(xs.ticks(5)).join('line').attr('x1', (d) => xs(d)).attr('x2', (d) => xs(d)).attr('y1', m.t).attr('y2', h - m.b).attr('stroke', 'var(--cds-chart-grid)');
+    if (o.ref != null) svg.append('line').attr('x1', xs(o.ref)).attr('x2', xs(o.ref)).attr('y1', m.t).attr('y2', h - m.b).attr('stroke', 'var(--cds-chart-reference)').attr('stroke-dasharray', '4 3');
+    svg.append('g').attr('transform', `translate(0,${h - m.b})`).call(d3.axisBottom(xs).ticks(Math.max(3, Math.floor(w / 90))).tickFormat(o.fmt)).call(H.axis);
+    svg.append('g').selectAll('text').data(st).join('text').attr('x', m.l - 8).attr('y', (d) => ys(d)).attr('dy', '0.35em').attr('text-anchor', 'end').text((d) => d.replace('_', ' '));
+    const tip = H.tip(el);
+    svg.append('g').selectAll('circle').data(rows).join('circle').attr('cx', (d) => xs(o.x(d))).attr('cy', (d) => ys(d.station)).attr('r', 5)
+      .attr('fill', H.color(0)).attr('fill-opacity', 0.75).attr('stroke', 'var(--color-panel)').attr('stroke-width', 1.5)
+      .on('pointerenter pointermove', (ev, d) => { const [px, py] = d3.pointer(ev, el); tip.show(px, py, d.building + ' · ' + d.weather, o.tip(d)); })
+      .on('pointerleave', () => tip.hide());
+  };
+  dash.draw('conc', (el) => {
+    const rows = H.get('concentration'); H.fail(el, 'concentration'); if (!rows) return;
+    dotStrip(el, rows, { x: (d) => d.top10_share, domain: () => [0, 0.6], ref: 0.1, fmt: H.pct, tip: (d) => [[null, 'Worst 10% of zones', d3.format('.0%')(d.top10_share)], [null, 'Zones', d.n_zones]] });
+  });
+  dash.draw('recon', (el) => {
+    const rows = H.get('recon'); H.fail(el, 'recon'); if (!rows) return;
+    dotStrip(el, rows, { x: (d) => d.ratio, domain: (r) => [Math.min(0.8, d3.min(r, (d) => d.ratio)), Math.max(1.2, d3.max(r, (d) => d.ratio))], ref: 1, fmt: H.f2, tip: (d) => [[null, 'Rebuilt / recorded', H.f3(d.ratio)], [null, 'Step correlation', H.f2(d.corr)]] });
+  });
+
+  // ---- model
+  dash.draw('model', (el) => {
+    const rows = H.get('model'); H.fail(el, 'model'); if (!rows) return;
+    const models = [...new Set(rows.map((d) => d.model))];
+    const feats = ['raw obs (as delivered)', 're-encoded'];
+    const { svg, w, h } = H.svg(el, 240);
+    const lo = Math.min(0, d3.min(rows, (d) => d.r2_val));
+    const ys = d3.scaleLinear().domain([Math.max(lo, -1), 1]).nice();
+    const yl = H.textW(svg, ys.ticks(5).map(H.f2));
+    const m = { l: yl + 14, r: 8, t: 8, b: 26 };
+    const x0 = d3.scaleBand().domain(models).range([m.l, w - m.r]).paddingInner(0.3);
+    const x1 = d3.scaleBand().domain(feats).range([0, x0.bandwidth()]).padding(0.08);
+    ys.range([h - m.b, m.t]);
+    H.grid(svg.append('g'), ys, m.l, w - m.r);
+    svg.append('line').attr('x1', m.l).attr('x2', w - m.r).attr('y1', ys(0)).attr('y2', ys(0)).attr('stroke', 'var(--cds-chart-axis)');
+    svg.append('g').attr('transform', `translate(0,${h - m.b})`).call(d3.axisBottom(x0).tickSize(0)).call(H.axis).call((a) => a.select('.domain').remove());
+    svg.append('g').attr('transform', `translate(${m.l},0)`).call(d3.axisLeft(ys).ticks(5).tickFormat(H.f2).tickSize(0)).call(H.axis).call((a) => a.select('.domain').remove());
+    const tip = H.tip(el);
+    const clip = (v) => Math.max(ys.domain()[0], v);
+    svg.append('g').selectAll('rect').data(rows).join('rect')
+      .attr('x', (d) => x0(d.model) + x1(d.features)).attr('width', x1.bandwidth())
+      .attr('y', (d) => ys(Math.max(0, clip(d.r2_val)))).attr('height', (d) => Math.abs(ys(clip(d.r2_val)) - ys(0))).attr('rx', 2)
+      .attr('fill', (d) => d.features === 're-encoded' ? H.color(0) : 'var(--cds-chart-muted)')
+      .on('pointerenter pointermove', (ev, d) => { const [px, py] = d3.pointer(ev, el); tip.show(px, py, d.model + ' · ' + (d.features === 're-encoded' ? 'Re-encoded' : 'Raw observation'), [[null, 'R² validation', H.f3(d.r2_val)], [null, 'R² train', H.f3(d.r2_train)], [null, 'Mean abs. error', H.f3(d.mae_val) + ' K']]); })
+      .on('pointerleave', () => tip.hide());
+    svg.append('g').selectAll('text').data(rows).join('text')
+      .attr('x', (d) => x0(d.model) + x1(d.features) + x1.bandwidth() / 2).attr('y', (d) => d.r2_val >= 0 ? ys(d.r2_val) - 4 : ys(0) - 4)
+      .attr('text-anchor', 'middle').text((d) => H.f2(d.r2_val));
+  });
+
+  const nice = (f) => f.replace(/^[fga]_/, '').replace(/_/g, ' ');
+  dash.draw('imp', (el) => {
+    const rows = H.get('importance'); H.fail(el, 'importance'); if (!rows) return;
+    H.hbars(el, rows, { keys: ['v'], label: (d) => nice(d.feature), val: (d) => d.drop_r2, fmt: H.f2, fmtTip: H.f3, fmtEnd: (d) => H.f3(d.drop_r2), color: () => H.color(0), rowH: 22 });
+  });
+  dash.draw('shift', (el) => {
+    const rows = H.get('shift'); H.fail(el, 'shift'); if (!rows) return;
+    const h = rows.length * 22 + 30;
+    const { svg, w } = H.svg(el, h);
+    const lw = H.textW(svg, rows.map((d) => nice(d.feature)));
+    const m = { l: lw + 12, r: 40, t: 4, b: 26 };
+    const mx = Math.max(1, d3.max(rows, (d) => Math.abs(d.smd)));
+    const xs = d3.scaleLinear().domain([-mx, mx]).nice().range([m.l, w - m.r]);
+    const ys = d3.scaleBand().domain(rows.map((d) => d.feature)).range([m.t, h - m.b]).padding(0.28);
+    svg.append('g').selectAll('line').data(xs.ticks(5)).join('line').attr('x1', (d) => xs(d)).attr('x2', (d) => xs(d)).attr('y1', m.t).attr('y2', h - m.b).attr('stroke', 'var(--cds-chart-grid)');
+    for (const r of [-0.5, 0.5]) svg.append('line').attr('x1', xs(r)).attr('x2', xs(r)).attr('y1', m.t).attr('y2', h - m.b).attr('stroke', 'var(--cds-chart-reference)').attr('stroke-dasharray', '4 3');
+    svg.append('g').attr('transform', `translate(0,${h - m.b})`).call(d3.axisBottom(xs).ticks(5).tickFormat(d3.format('+.1~f'))).call(H.axis);
+    svg.append('g').selectAll('text').data(rows).join('text').attr('x', m.l - 8).attr('y', (d) => ys(d.feature) + ys.bandwidth() / 2).attr('dy', '0.35em').attr('text-anchor', 'end').text((d) => nice(d.feature));
+    const tip = H.tip(el);
+    svg.append('g').selectAll('rect').data(rows).join('rect').attr('x', (d) => xs(Math.min(0, d.smd))).attr('width', (d) => Math.abs(xs(d.smd) - xs(0))).attr('y', (d) => ys(d.feature)).attr('height', ys.bandwidth()).attr('rx', 2)
+      .attr('fill', (d) => Math.abs(d.smd) > 0.5 ? H.color(1) : 'var(--cds-chart-muted)')
+      .on('pointerenter pointermove', (ev, d) => { const [px, py] = d3.pointer(ev, el); tip.show(px, py, nice(d.feature), [[null, 'Shift', d3.format('+.2f')(d.smd)], [null, 'Shipped mean', H.f3(d.kit_mean)], [null, 'Validation mean', H.f3(d.val_mean)]]); })
+      .on('pointerleave', () => tip.hide());
+  });
+})();
+</script>
