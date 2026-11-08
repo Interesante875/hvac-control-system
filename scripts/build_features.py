@@ -22,8 +22,10 @@ def main() -> None:
     ap.add_argument("--tag", required=True, help="subdirectory of data/rollouts")
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--version", type=int, default=2, help="feature encoder version (1 kept for comparison)")
+    ap.add_argument("--out-tag", help="write under data/features/<out-tag> instead of <tag>")
     args = ap.parse_args()
-    build(args.tag, workers=args.workers, force=args.force)
+    build(args.tag, workers=args.workers, force=args.force, version=args.version, out_tag=args.out_tag)
 
 
 if __name__ == "__main__":

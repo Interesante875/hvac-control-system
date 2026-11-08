@@ -74,6 +74,91 @@ class NoisyPolicy:
         return {"continuous_action": c, "discrete_action": d}
 
 
+class BehaviourPolicy:
+    """A base controller plus structured exploration, for collecting training data.
+
+    Spec keys (all optional, all off by default):
+      sigma        Gaussian noise std on every continuous action, held ``hold`` steps
+      zone_sigma   extra noise on zone dampers/reheat only
+      p_flip_ahu   per-hold probability of flipping each AHU's run command
+      plant_random per-hold probability of replacing the plant setpoints (supply
+                   air temperature, fan pressure, recirculation, water temperature,
+                   pump pressure) with values drawn uniformly from wide but sane
+                   ranges. Zone loops stay closed, so the building stays
+                   controlled while the plant visits settings the baselines never
+                   use (pid_water pins recirculation at 0.7, for example).
+    The hot-water pump is never flipped: switching it off in the cold is what
+    tripled the loss of plain action noise in Fairbanks.
+    """
+
+    # Native ranges the random plant draws from, mapped to [-1, 1] below.
+    PLANT_RANGES = {
+        "temp": (285.0, 300.0, 285.0, 305.0),       # draw lo, hi, action lo, hi (K)
+        "pressure": (200.0, 1600.0, 0.0, 2000.0),   # Pa
+        "recirc": (0.0, 0.7, 0.0, 1.0),
+        "water_temp": (315.0, 350.0, 310.0, 350.0),  # K
+        "water_dp": (4.0, 20.0, 0.0, 20.0),
+    }
+
+    def __init__(self, base: Any, meta: dict, spec: dict, hold: int, seed: int):
+        self.base, self.spec, self.hold = base, spec, max(1, hold)
+        self.rng = np.random.default_rng(seed)
+        self.K = len(meta["ahu_zone_assignments"])
+        self.i_temp = np.array(meta["temp_indices"])
+        self.i_press = np.array(meta["pressure_indices"][: self.K])
+        self.i_recirc = np.array(meta["recirculation_indices"])
+        self.i_wt = meta["water_indices"][0]
+        self.i_wdp = meta["pressure_indices"][self.K]
+        self.i_zone = np.array([i for z in meta["zone_action_indices"].values() for i in z.values()])
+        self.t = 0
+        self._dc = self._dz = self._flip = self._plant = None
+
+    def _norm(self, x, a_lo, a_hi):
+        return 2 * (x - a_lo) / (a_hi - a_lo) - 1
+
+    def _draw(self, n_cont: int) -> None:
+        s = self.spec
+        self._dc = self.rng.normal(0, s.get("sigma", 0.0), n_cont).astype(np.float32)
+        self._dz = self.rng.normal(0, s.get("zone_sigma", 0.0), len(self.i_zone)).astype(np.float32)
+        self._flip = self.rng.random(self.K) < s.get("p_flip_ahu", 0.0)
+        self._plant = None
+        if self.rng.random() < s.get("plant_random", 0.0):
+            p = {}
+            for k, (lo, hi, alo, ahi) in self.PLANT_RANGES.items():
+                n = 1 if k.startswith("water") else self.K
+                p[k] = self._norm(self.rng.uniform(lo, hi, n), alo, ahi).astype(np.float32)
+            self._plant = p
+
+    def get_action(self, obs: np.ndarray) -> dict[str, np.ndarray]:
+        a = self.base.get_action(obs)
+        c = np.array(a["continuous_action"], dtype=np.float32)
+        d = np.array(a["discrete_action"], dtype=np.int32)
+        if self.t % self.hold == 0:
+            self._draw(len(c))
+        self.t += 1
+        c += self._dc
+        c[self.i_zone] += self._dz
+        if self._plant is not None:
+            c[self.i_temp] = self._plant["temp"]
+            c[self.i_press] = self._plant["pressure"]
+            c[self.i_recirc] = self._plant["recirc"]
+            c[self.i_wt] = self._plant["water_temp"][0]
+            c[self.i_wdp] = self._plant["water_dp"][0]
+        d[: self.K] = np.where(self._flip, 1 - d[: self.K], d[: self.K])
+        return {"continuous_action": np.clip(c, -1, 1), "discrete_action": d}
+
+
+# Named behaviours used by the collection plan (configs/collection.yaml).
+BEHAVIOURS: dict[str, tuple[str, dict]] = {
+    "pid_water": ("pid_water", {}),
+    "pid": ("pid", {}),
+    "fixed_setpoint": ("fixed_setpoint", {}),
+    "bang_bang": ("bang_bang", {}),
+    "pid_water_explore": ("pid_water", {"sigma": 0.08, "zone_sigma": 0.25, "p_flip_ahu": 0.03}),
+    "pid_water_plant_random": ("pid_water", {"plant_random": 0.5, "zone_sigma": 0.1}),
+}
+
+
 def resolve_policy(key: str):
     """A kit POLICY_MAP key (``pid_water``) or an import path (``pkg.mod:Class``)."""
     from smart_buildings.evaluate import POLICY_MAP
@@ -108,7 +193,10 @@ def _jsonable(meta: dict) -> dict:
 
 
 def run_one(scenario_dir: str, policy_key: str, out_path: str, steps: int,
-            sigma: float, p_flip: float, hold: int, seed: int) -> dict:
+            sigma: float, p_flip: float, hold: int, seed: int,
+            behaviour: str | None = None) -> dict:
+    """One rollout. With ``behaviour`` (a BEHAVIOURS key), its base controller
+    and exploration spec replace ``policy_key``/``sigma``/``p_flip``."""
     scen = paths.REPO_ROOT / scenario_dir
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -116,8 +204,13 @@ def run_one(scenario_dir: str, policy_key: str, out_path: str, steps: int,
         from smart_buildings.evaluate import initialize_policy, validate_action
         env, meta = load_env(scen)
         spec = env.action_spec()
-        base = initialize_policy(resolve_policy(policy_key), meta, spec)
-        policy = NoisyPolicy(base, sigma, p_flip, hold, seed)
+        if behaviour is not None:
+            base_key, bspec = BEHAVIOURS[behaviour]
+            base = initialize_policy(resolve_policy(base_key), meta, spec)
+            policy = BehaviourPolicy(base, meta, bspec, hold, seed)
+        else:
+            base = initialize_policy(resolve_policy(policy_key), meta, spec)
+            policy = NoisyPolicy(base, sigma, p_flip, hold, seed)
 
         vavs = env.building.simulator._hvac._vavs
         ahus = env.building.simulator._hvac.air_handler._ahus
@@ -165,7 +258,9 @@ def run_one(scenario_dir: str, policy_key: str, out_path: str, steps: int,
     )
     summary = {
         "scenario_dir": scenario_dir, "building": scen.parent.name, "weather": scen.name,
-        "policy": policy_key, "sigma": sigma, "p_flip": p_flip, "hold": hold, "seed": seed,
+        "policy": behaviour or policy_key, "behaviour": behaviour or policy_key,
+        "base_policy": BEHAVIOURS[behaviour][0] if behaviour else policy_key,
+        "sigma": sigma, "p_flip": p_flip, "hold": hold, "seed": seed,
         "steps": n, "full_episode": n == paths.STEPS_PER_EPISODE,
         "total_reward": float(R[trunc].sum()),
         # Per-scenario leaderboard value: mean per-step loss (lower is better).

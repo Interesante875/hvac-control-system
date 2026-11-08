@@ -1,0 +1,27 @@
+# What to record for training. scripts/plan_collection.py turns this into
+# data/collection_plan.csv (one row per episode); scripts/collect_plan.py runs it.
+#
+# Why a mix of controllers: a model only learns the effect of actions it sees.
+# pid_water alone pins recirculation at 0.7 and rarely varies the plant, so
+# half of the episodes explore around it and the rest come from controllers
+# that fail in different ways (bang_bang in the cold, fixed_setpoint in the heat).
+
+tag: diverse
+steps: 1008          # 3.5 days (the first 8 episodes ran 7 days); see README
+hold: 12             # exploration changes once an hour (12 x 5 min)
+seed: 11
+
+split: train
+episodes_per_building: 3
+# Simulation cost grows with floor area, so the largest buildings get fewer windows.
+large_building_zones: 90
+episodes_per_large_building: 2
+
+# Relative weights of each behaviour (hvacdata/rollouts.py BEHAVIOURS).
+behaviours:
+  pid_water: 2
+  pid_water_explore: 2
+  pid_water_plant_random: 2
+  pid: 1
+  fixed_setpoint: 1
+  bang_bang: 1

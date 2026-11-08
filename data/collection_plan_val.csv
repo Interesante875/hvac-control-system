@@ -1,0 +1,13 @@
+building,weather,station,scenario_dir,behaviour,steps,hold,seed,n_zones,tag
+building_09001,houston_d0924,houston,data/scenarios/building_09001/houston_d0924,pid_water_explore,1008,12,2300002,98,diverse_val
+building_09001,minneapolis_d0212,minneapolis,data/scenarios/building_09001/minneapolis_d0212,pid_water_plant_random,1008,12,2300003,98,diverse_val
+building_09006,anchorage_d0702,anchorage,data/scenarios/building_09006/anchorage_d0702,pid_water_explore,1008,12,2300005,98,diverse_val
+building_09006,houston_d0730,houston,data/scenarios/building_09006/houston_d0730,pid_water_plant_random,1008,12,2300010,98,diverse_val
+building_09008,anchorage_d0409,anchorage,data/scenarios/building_09008/anchorage_d0409,pid_water_plant_random,1008,12,2300007,96,diverse_val
+building_09008,las_vegas_d0702,las_vegas,data/scenarios/building_09008/las_vegas_d0702,pid_water_plant_random,1008,12,2300009,96,diverse_val
+building_09012,las_vegas_d0507,las_vegas,data/scenarios/building_09012/las_vegas_d0507,pid_water_explore,1008,12,2300006,85,diverse_val
+building_09012,houston_d0507,houston,data/scenarios/building_09012/houston_d0507,pid_water_explore,1008,12,2300011,85,diverse_val
+building_09010,minneapolis_d1022,minneapolis,data/scenarios/building_09010/minneapolis_d1022,pid_water_plant_random,1008,12,2300000,55,diverse_val
+building_09010,london_d0827,london,data/scenarios/building_09010/london_d0827,pid_water_plant_random,1008,12,2300004,55,diverse_val
+building_09013,minneapolis_d0423,minneapolis,data/scenarios/building_09013/minneapolis_d0423,pid_water_explore,1008,12,2300001,53,diverse_val
+building_09013,houston_d0604,houston,data/scenarios/building_09013/houston_d0604,pid_water_explore,1008,12,2300008,53,diverse_val

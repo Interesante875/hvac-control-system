@@ -130,24 +130,94 @@ The raw observation is not usable as model input as delivered (details in
   per-zone airflow setpoint is constant.
 - **Variable shape.** Length and positions change per building.
 
-`hvacdata.features.BuildingEncoder(meta)` turns each observation into
-`zone` (V × 26) and `glob` (16) arrays in fixed physical scales: the zone's
-state relative to its own comfort band (including the reward's exact
-shortfall curve), 5-minute and 1-hour changes, its distance to the worst zone
-on its AHU, damper/reheat, floor area and facade share (from the floor plan
-in the metadata), its AHU and the hot-water loop; plus outdoor temperature,
-one time-of-day and one day-of-week pair, schedule (including hours until
-comfort mode starts), occupants per zone, and building size. It needs only the
-observation and the metadata a policy receives, so the same class serves
-offline training and a submitted policy (0.1 ms per step).
+`hvacdata.features.BuildingEncoder(meta)` (version 2) turns each observation
+into `zone` (V × 31) and `glob` (25) arrays. Every column is declared once in
+`ZONE_SPEC` / `GLOBAL_SPEC` with its unit, transform, clip and reason;
+**[docs/FEATURES.md](docs/FEATURES.md)** is generated from that table plus
+statistics measured on the training data (`scripts/feature_catalog.py`).
+The practices applied, column by column:
+
+- **Fixed physical scales, not fitted ones** (5 K = the reward's comfort knee,
+  2000 Pa = the fan's range), so an unseen building or climate cannot shift
+  them. `FeatureScaler` adds a robust (median/IQR) standardisation fitted on
+  the train split only, saved as `configs/feature_scaler.json`, for models that
+  need unit variance.
+- **Tails:** `asinh` for heavy-tailed signed values (5-minute temperature
+  change spans ±110 K/h), `log1p` plus a 0/1 indicator for zero-inflated
+  positives (the quadratic comfort shortfall, skew 21); every column clipped
+  to a stated range.
+- **Gating:** readings that mean nothing while equipment is off (supply-air
+  temperature of a stopped AHU, pump pressure of a stopped pump) are zeroed
+  by their run flag.
+- **Dropping:** constant and duplicate fields (cooling-request fraction is
+  always 1; static pressure tracks airflow at r=0.96); two-valued columns
+  become flags.
+- **Interactions from physics:** heat the supply air can deliver
+  (airflow × damper × ΔT) and heat the reheat coil can deliver.
+- **History without a sequence model:** 5-minute and 1-hour changes,
+  6-hour moving averages of zone temperature and of outdoor temperature,
+  a 24-hour one of outdoor temperature, hours out of band, hours since the AHU
+  switched.
+- **Runtime-safe:** only the observation and the metadata a policy receives
+  (0.15 ms per step), so the same class builds training data and runs inside a
+  submission. `hvacdata/features_v1.py` is the first version, kept for
+  comparisons.
 
 ```bash
-python scripts/build_features.py --tag val    # data/features/val/{zone,step,zones_static}/*.parquet
+python scripts/build_features.py --tag diverse              # data/features/diverse/{zone,step,zones_static}
+python scripts/build_features.py --tag analysis --version 1 --out-tag analysis_v1
+python scripts/feature_catalog.py --tags diverse analysis   # docs/FEATURES.md + configs/feature_scaler.json
 ```
 
-Zone rows also carry the commanded actions in physical units and targets at
-t+1 (`y_dtemp`, `y_dtemp_1h`, `y_shortfall`); step rows carry the reward split
-into comfort, cost and carbon terms.
+Zone rows also carry the full commanded action at t in scaled units (zone
+damper and reheat, its AHU's run / supply temperature / pressure /
+recirculation, water temperature / pressure / pump) and targets
+(`y_dtemp`, `y_dtemp_1h`, `y_shortfall`); step rows carry the reward split into
+comfort, cost and carbon terms.
+
+## Collecting varied training data
+
+A model only learns the effect of actions it sees, and `pid_water` alone pins
+recirculation at 0.7 and rarely moves the plant. `configs/collection.yaml`
+mixes six behaviours (`hvacdata/rollouts.py: BEHAVIOURS`):
+
+| behaviour | what it adds |
+|---|---|
+| `pid_water` | the best baseline, as is |
+| `pid_water_explore` | small noise held for an hour; AHUs flipped rarely, the pump never (flipping it tripled the loss in the cold) |
+| `pid_water_plant_random` | half the hours, plant setpoints redrawn at random within sane ranges while zone loops stay closed |
+| `pid`, `fixed_setpoint`, `bang_bang` | baselines that fail differently (cold vs heat) |
+
+```bash
+python scripts/plan_collection.py                       # data/collection_plan.csv (160 x 7-day episodes)
+python scripts/collect_plan.py                          # resumable; all cores
+python scripts/plan_collection.py --config configs/collection_val.yaml --out data/collection_plan_val.csv
+python scripts/collect_plan.py --plan data/collection_plan_val.csv
+```
+
+What was collected (`data/collection_plan.csv`): 117 train episodes on all 40
+train buildings and 20 climates, 9.3 M zone-steps, plus 12 validation episodes
+with varied controllers (`data/collection_plan_val.csv`). Simulation cost
+grows with floor area, so buildings over 90 zones got 2 weather windows and
+the rest 3, and episodes are 3.5 days (the first 8 ran 7). That took about
+1.5 hours on 4 cores; raise `episodes_per_building` or `steps` on a bigger
+machine. `data/collection_plan_full.csv` is the original 160-episode plan.
+
+`analysis/feature_eval.py` measures what each choice buys, scored on unseen
+buildings in unseen climates run both by `pid_water` and by varied
+controllers:
+
+- **Varied data scales; shipped-only data levels off.** Next-hour temperature
+  R² on varied-run buildings: 0.535 → 0.555 → 0.567 for shipped `pid_water`
+  data at 20k / 80k / 320k rows, against 0.563 → 0.593 → 0.610 for the varied
+  collection.
+- **Encoding v2 helps the neural network** (+0.015 to +0.045 R², largest for
+  comfort penalty under varied controllers, 0.571 → 0.616); gradient boosting
+  is indifferent to it, as trees are to monotone transforms and scaling.
+- **Feature groups:** recent dynamics matter most; the action columns matter
+  on varied-run buildings; static building descriptors lean slightly negative
+  (possible memorisation of train buildings). A refit with another seed moves
+  R² by about 0.005, so differences under 0.01 are noise.
 
 ## Analysis
 

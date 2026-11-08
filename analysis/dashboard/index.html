@@ -29,6 +29,9 @@
   .hv-tip .hd { color: var(--cds-text-secondary); }
   .hv-tip .row { display: flex; align-items: center; gap: 0.375rem; font-variant-numeric: tabular-nums; }
   .hv-tablebox { max-height: 26rem; overflow: auto; min-width: 0; }
+  .hv-tablebox.tall { max-height: 34rem; }
+  .hv-search { width: 100%; max-width: 26rem; font: inherit; font-size: var(--cds-font-size-body); padding: var(--cds-pad-xs) var(--cds-pad-sm); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); background: var(--color-bg); color: var(--color-fg); }
+  .hv-search:focus-visible { outline: 2px solid var(--cds-chart-axis); outline-offset: 1px; }
   .hv-table { width: 100%; border-collapse: collapse; font-size: var(--cds-font-size-caption); font-variant-numeric: tabular-nums; }
   .hv-table th { position: sticky; top: 0; background: var(--color-panel); text-align: left; font-weight: var(--cds-font-weight-medium); padding: var(--cds-pad-xs) var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); white-space: nowrap; }
   .hv-table td { padding: var(--cds-pad-xs) var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); vertical-align: top; }
@@ -64,7 +67,7 @@
     </div>
     <div class="hv-tile">
       <span class="lab">Encoded width</span>
-      <span class="big"><span data-draw="t-zf" data-source="headline" data-field="zone_features">—</span> + <span data-draw="t-gf" data-source="headline" data-field="global_features">—</span></span>
+      <span class="big"><span data-draw="t-zf" data-source="collection_headline" data-field="zone_features">—</span> + <span data-draw="t-gf" data-source="collection_headline" data-field="global_features">—</span></span>
       <span class="sub">features per zone, plus building-wide; the same for every building</span>
     </div>
     <div class="hv-tile">
@@ -253,12 +256,131 @@
     </div>
   </section>
 
+  <section class="hv-sec" id="collection">
+    <h2>Varied training data</h2>
+    <p>A model only learns what an action does if the data shows that action being taken. The best baseline holds recirculation at one value and rarely moves the plant, so the training set mixes six controllers: the baseline as it is, two exploring versions of it, and three baselines that fail in different ways. Every generated train building and 20 climates are covered.</p>
+    <div class="hv-tiles">
+      <div class="hv-tile"><span class="lab">Episodes</span><span class="big" data-draw="c-ep" data-source="collection_headline" data-field="episodes">—</span><span class="sub">3.5 or 7 days each, plus <span data-draw="c-vep" data-source="collection_headline" data-field="val_episodes">—</span> for validation</span></div>
+      <div class="hv-tile"><span class="lab">Buildings</span><span class="big" data-draw="c-b" data-source="collection_headline" data-field="buildings">—</span><span class="sub">every generated train building</span></div>
+      <div class="hv-tile"><span class="lab">Climates</span><span class="big" data-draw="c-cl" data-source="collection_headline" data-field="climates">—</span><span class="sub">none shared with validation</span></div>
+      <div class="hv-tile"><span class="lab">Zone-steps</span><span class="big"><span data-draw="c-zr" data-source="collection_headline" data-field="zone_rows_m">—</span> M</span><span class="sub">one row per zone per 5 minutes</span></div>
+    </div>
+    <div class="hv-grid">
+      <div class="hv-card">
+        <h3>How far each action is pushed</h3>
+        <p class="hv-note">Commanded action in its scaled units (see the catalog below). Thin bar: 5th–95th percentile; thick bar: middle half; tick: median.</p>
+        <ul class="hv-legend">
+          <li><span class="hv-sw" style="background: var(--cds-chart-muted)"></span>Shipped buildings, best baseline</li>
+          <li><span class="hv-sw" data-sw="0"></span>Varied collection</li>
+        </ul>
+        <div class="hv-chart tall" data-draw="coverage" data-source="action_coverage"></div>
+      </div>
+      <div class="hv-card">
+        <h3>Episodes by controller</h3>
+        <p class="hv-note">Behaviours are dealt out across buildings and climates so none is tied to one kind of building or weather.</p>
+        <div class="hv-tablebox">
+          <table class="hv-table" data-source="collection_behaviours" data-row-key="behaviour">
+            <thead><tr>
+              <th data-field="label">Controller</th>
+              <th data-field="episodes" class="num">Episodes</th>
+              <th data-field="buildings" class="num">Buildings</th>
+              <th data-field="climates" class="num">Climates</th>
+              <th data-field="zone_rows_m" class="num">Zone-steps (M)</th>
+            </tr></thead>
+            <tbody data-draw="behaviours"></tbody>
+          </table>
+        </div>
+        <p class="hv-note">Explore: small noise held for an hour; air handlers flipped rarely, the pump never (flipping it tripled the loss in the cold). Random plant: in half the hours the plant setpoints are redrawn at random while the zone loops stay closed.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="hv-sec" id="catalog">
+    <h2>Every column, and what was done to it</h2>
+    <p>Each feature is declared once with its unit, transform, clip and reason; the encoder, this table and the repository's feature document all read that one declaration. Percentiles are measured on the training data after the transform. Flags mark what to watch: a column that sits at its clip, barely varies, or nearly duplicates another.</p>
+    <div class="hv-card">
+      <input id="cat-search" class="hv-search" type="search" placeholder="Filter columns, e.g. temperature, gated, log" aria-label="Filter columns">
+      <div class="hv-tablebox tall">
+        <table class="hv-table" data-source="feature_catalog" data-row-key="column">
+          <thead><tr>
+            <th data-field="name">Column</th>
+            <th data-field="level">Level</th>
+            <th data-field="group">Group</th>
+            <th data-field="transform">Transform</th>
+            <th data-field="clip">Clip</th>
+            <th data-field="p01" class="num">p1</th>
+            <th data-field="p50" class="num">p50</th>
+            <th data-field="p99" class="num">p99</th>
+            <th data-field="zero" class="num">Zeros</th>
+            <th data-field="flags">Flags</th>
+            <th data-field="why">Why</th>
+          </tr></thead>
+          <tbody data-draw="catalog"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="hv-sec" id="payoff">
+    <h2>Did each choice help?</h2>
+    <p>Models predict a zone's temperature and its comfort penalty one hour ahead, scored on six unseen buildings in five unseen climates, twice: run by the best baseline, and run by varied controllers. The second matters most, because a controller built on the model will take actions the baseline would not.</p>
+    <p>Two choices paid off. The varied data keeps improving as more of it is used while shipped-only data levels off: with 320,000 training rows the next-hour temperature R² on varied-run buildings is <b data-draw="s-var" data-source="scale_eval" data-field="r2" data-where="key=varied collection|320000|varied">—</b> against <b data-draw="s-ship" data-source="scale_eval" data-field="r2" data-where="key=shipped, pid_water|320000|varied">—</b>. The second encoding helps the neural network, which depends on scaling and transforms: its comfort-penalty R² on varied-run buildings rises from <b data-draw="e-v1" data-source="encoding_eval" data-field="mlp" data-where="key=v1|y_shortfall_1h|varied">—</b> to <b data-draw="e-v2" data-source="encoding_eval" data-field="mlp" data-where="key=v2|y_shortfall_1h|varied">—</b>. Gradient boosting barely notices the encoding, as expected of trees. Predicting the effect of unusual actions is still the hard part: every model scores lower on varied-run buildings than on baseline-run ones.</p>
+    <div class="hv-grid">
+      <div class="hv-card">
+        <h3>First vs second feature encoding</h3>
+        <p class="hv-note">R² on unseen buildings and climates, gradient boosting. Same rows, same actions; only the state encoding differs.</p>
+        <ul class="hv-legend">
+          <li><span class="hv-sw" style="background: var(--cds-chart-muted)"></span>Version 1</li>
+          <li><span class="hv-sw" data-sw="0"></span>Version 2</li>
+        </ul>
+        <div class="hv-chart" data-draw="enc-gb" data-source="encoding_eval"></div>
+      </div>
+      <div class="hv-card">
+        <h3>The same, for a neural network</h3>
+        <p class="hv-note">Inputs standardised with the scaler fitted on training rows only.</p>
+        <ul class="hv-legend">
+          <li><span class="hv-sw" style="background: var(--cds-chart-muted)"></span>Version 1</li>
+          <li><span class="hv-sw" data-sw="0"></span>Version 2</li>
+        </ul>
+        <div class="hv-chart" data-draw="enc-mlp" data-source="encoding_eval"></div>
+      </div>
+      <div class="hv-card">
+        <h3>Shipped-only data vs the varied collection</h3>
+        <p class="hv-note">R², version 2 features, gradient boosting, the same model trained on each data source.</p>
+        <ul class="hv-legend">
+          <li><span class="hv-sw" style="background: var(--cds-chart-muted)"></span>Shipped buildings, best baseline</li>
+          <li><span class="hv-sw" data-sw="0"></span>Varied collection</li>
+        </ul>
+        <div class="hv-chart" data-draw="data-eval" data-source="data_eval"></div>
+      </div>
+      <div class="hv-card">
+        <h3>Varied data keeps paying off as it grows</h3>
+        <p class="hv-note">Next-hour temperature R² on varied-run validation buildings, by number of training rows (log scale). Gradient boosting, second encoding.</p>
+        <ul class="hv-legend">
+          <li><span class="hv-sw line" style="background: var(--cds-chart-muted)"></span>Shipped buildings, best baseline</li>
+          <li><span class="hv-sw line" data-sw="0"></span>Varied collection</li>
+        </ul>
+        <div class="hv-chart" data-draw="scale" data-source="scale_eval"></div>
+      </div>
+      <div class="hv-card">
+        <h3>What each feature group is worth</h3>
+        <p class="hv-note">Drop in R² for next-hour temperature when the group is removed. Above zero means the group helps. Refitting the same model with another seed moves R² by about 0.005, so bars within ±0.01 are noise. Recent dynamics matter most on both test sets. The action columns matter on varied-run buildings, where the actions differ from the baseline's. The static building descriptors lean slightly negative, at the edge of noise: possibly a sign they let a model memorise the 40 train buildings.</p>
+        <ul class="hv-legend">
+          <li><span class="hv-sw" data-sw="0"></span>Varied controllers</li>
+          <li><span class="hv-sw" data-sw="1"></span>Best baseline</li>
+        </ul>
+        <div class="hv-chart tall" data-draw="ablation" data-source="ablation_eval"></div>
+      </div>
+    </div>
+  </section>
+
   <details>
     <summary>Method and terms</summary>
     <dl>
       <dt>Baseline</dt><dd>The kit's best reference controller, "pid_water". Each scenario runs its first 7 days (2,016 steps), plus a copy of the shipped runs with exploration noise added to the actions. These are for analysis only: the leaderboard scores full 30-day episodes.</dd>
       <dt>Comfort shortfall</dt><dd>Per zone: distance outside its heating/cooling band divided by 5 K, linear up to 1 and quadratic beyond, exactly as the reward computes it. The reward averages it over zones weighted by occupancy, which the controller cannot see, so the rebuilt total uses equal weights.</dd>
-      <dt>Re-encoded features</dt><dd>26 per zone (state relative to the comfort band, recent change, neighbours on the same air handler, damper and reheat, area and facade share, its air handler and the hot-water loop) and 16 building-wide (outdoor temperature, time, schedule, occupancy per zone). All use fixed physical scales, so an unseen building cannot shift them, and all can be computed inside a submitted policy from the observation and building metadata.</dd>
+      <dt>Re-encoded features</dt><dd>The audit sections near the top use the first encoding: 26 per zone and 16 building-wide. The current, second encoding is listed in full in the catalog: it adds tail transforms, gating by equipment state, physics interactions and longer history, and drops constant and duplicate columns. Both use fixed physical scales, so an unseen building cannot shift them, and both can be computed inside a submitted policy from the observation and building metadata.</dd>
+      <dt>Varied collection</dt><dd>Episodes of 3.5 days (the first eight ran 7 days) on all 40 generated train buildings, with weather windows from 20 train climates. Large buildings get two windows and the rest three, because simulation cost grows with floor area. The validation episodes with varied controllers use the six validation buildings and five validation climates.</dd>
       <dt>Raw observation</dt><dd>For the same zone: its 6 fields, its air handler's 15, the hot-water loop's 7 and the 51 building-wide fields, as the environment delivers them.</dd>
       <dt>Models</dt><dd>Ridge regression, a two-layer neural network (64 units each, early stopping) and gradient boosting, from scikit-learn, without per-feature scaling, so the comparison shows what each input looks like to the model as delivered.</dd>
     </dl>
@@ -392,8 +514,8 @@
   set('h-mlp-enc', 'headline', 'r2_mlp_enc', H.f2);
   set('t-dmin', 'headline', 'obs_dim_min', String);
   set('t-dmax', 'headline', 'obs_dim_max', String);
-  set('t-zf', 'headline', 'zone_features', String);
-  set('t-gf', 'headline', 'global_features', String);
+  set('t-zf', 'collection_headline', 'zone_features', String);
+  set('t-gf', 'collection_headline', 'global_features', String);
   set('t-drop', 'headline', 'field_types_dropped', String);
   set('t-recon', 'headline', 'recon_ratio_median', H.f2);
 
@@ -656,6 +778,194 @@
     svg.append('g').selectAll('rect').data(rows).join('rect').attr('x', (d) => xs(Math.min(0, d.smd))).attr('width', (d) => Math.abs(xs(d.smd) - xs(0))).attr('y', (d) => ys(d.feature)).attr('height', ys.bandwidth()).attr('rx', 2)
       .attr('fill', (d) => Math.abs(d.smd) > 0.5 ? H.color(1) : 'var(--cds-chart-muted)')
       .on('pointerenter pointermove', (ev, d) => { const [px, py] = d3.pointer(ev, el); tip.show(px, py, nice(d.feature), [[null, 'Shift', d3.format('+.2f')(d.smd)], [null, 'Shipped mean', H.f3(d.kit_mean)], [null, 'Validation mean', H.f3(d.val_mean)]]); })
+      .on('pointerleave', () => tip.hide());
+  });
+})();
+</script>
+
+<script>
+(() => {
+  const H = window.HV;
+  const set = (name, id, field, fmt) => dash.draw(name, (el) => {
+    const r = H.get(id); el.textContent = r ? fmt(r[0][field]) : '—';
+  });
+  set('c-ep', 'collection_headline', 'episodes', String);
+  set('c-vep', 'collection_headline', 'val_episodes', String);
+  set('c-b', 'collection_headline', 'buildings', String);
+  set('c-cl', 'collection_headline', 'climates', String);
+  set('c-zr', 'collection_headline', 'zone_rows_m', d3.format('.1f'));
+
+  const td = (txt, cls) => { const c = document.createElement('td'); if (cls) c.className = cls; c.textContent = txt; return c; };
+
+  dash.draw('behaviours', (tb) => {
+    const rows = H.get('collection_behaviours');
+    if (!rows) { tb.replaceChildren(); return; }
+    tb.replaceChildren(...rows.slice().sort((a, b) => b.episodes - a.episodes).map((d) => {
+      const tr = document.createElement('tr');
+      tr.append(td(d.label), td(String(d.episodes), 'num'), td(String(d.buildings), 'num'), td(String(d.climates), 'num'), td(d3.format('.1f')(d.zone_rows_m), 'num'));
+      return tr;
+    }));
+  });
+
+  // ---- action coverage: two range rows per action
+  dash.draw('coverage', (el) => {
+    const rows = H.get('action_coverage'); H.fail(el, 'action_coverage'); if (!rows) return;
+    const actions = [...new Set(rows.map((d) => d.label))];
+    const sources = ['shipped, pid_water', 'varied collection'];
+    const rowH = 18, gap = 14;
+    const h = actions.length * (2 * rowH + gap) + 30;
+    const { svg, w } = H.svg(el, h);
+    const lw = H.textW(svg, actions);
+    const m = { l: lw + 12, r: 14, t: 4, b: 26 };
+    const xs = d3.scaleLinear().domain([Math.min(-1.75, d3.min(rows, (d) => d.p05)), Math.max(1, d3.max(rows, (d) => d.p95))]).nice().range([m.l, w - m.r]);
+    svg.append('g').selectAll('line').data(xs.ticks(6)).join('line').attr('x1', (d) => xs(d)).attr('x2', (d) => xs(d)).attr('y1', m.t).attr('y2', h - m.b).attr('stroke', 'var(--cds-chart-grid)');
+    svg.append('g').attr('transform', `translate(0,${h - m.b})`).call(d3.axisBottom(xs).ticks(Math.max(3, Math.floor(w / 90))).tickFormat(d3.format('.1~f'))).call(H.axis);
+    const tip = H.tip(el);
+    actions.forEach((a, i) => {
+      const y0 = m.t + i * (2 * rowH + gap);
+      svg.append('text').attr('x', m.l - 8).attr('y', y0 + rowH).attr('dy', '0.35em').attr('text-anchor', 'end').text(a);
+      sources.forEach((s, j) => {
+        const d = rows.find((r) => r.label === a && r.source === s); if (!d) return;
+        const yc = y0 + j * rowH + rowH / 2;
+        const col = j ? H.color(0) : 'var(--cds-chart-muted)';
+        const g = svg.append('g');
+        g.append('line').attr('x1', xs(d.p05)).attr('x2', xs(d.p95)).attr('y1', yc).attr('y2', yc).attr('stroke', col).attr('stroke-width', 2).attr('stroke-linecap', 'round');
+        g.append('rect').attr('x', xs(d.p25)).attr('width', Math.max(3, xs(d.p75) - xs(d.p25))).attr('y', yc - 5).attr('height', 10).attr('rx', 2).attr('fill', col);
+        g.append('line').attr('x1', xs(d.p50)).attr('x2', xs(d.p50)).attr('y1', yc - 7).attr('y2', yc + 7).attr('stroke', 'var(--color-fg)').attr('stroke-width', 2);
+        g.append('rect').attr('x', m.l).attr('width', w - m.l - m.r).attr('y', yc - rowH / 2).attr('height', rowH).attr('fill', 'transparent')
+          .on('pointerenter pointermove', (ev) => { const [px, py] = d3.pointer(ev, el); tip.show(px, py, a, [[j ? H.color(0) : H.css('--cds-chart-muted'), s === 'varied collection' ? 'Varied collection' : 'Shipped, best baseline', ''], [null, '5th–95th', H.f2(d.p05) + ' to ' + H.f2(d.p95)], [null, 'Middle half', H.f2(d.p25) + ' to ' + H.f2(d.p75)], [null, 'Median', H.f2(d.p50)]]); })
+          .on('pointerleave', () => tip.hide());
+      });
+    });
+  });
+
+  // ---- catalog
+  const box = () => document.getElementById('cat-search');
+  document.querySelectorAll('#cat-search').forEach((inp) => inp.addEventListener('input', () => dash.draw('catalog')));
+  dash.draw('catalog', (tb) => {
+    const rows = H.get('feature_catalog');
+    if (!rows) { tb.replaceChildren(); return; }
+    const q = (box()?.value || '').trim().toLowerCase();
+    const order = { zone: 0, building: 1, action: 2, target: 3 };
+    const keep = rows.filter((d) => !q || [d.name, d.level, d.group, d.transform, d.flags, d.why, d.unit].join(' ').toLowerCase().includes(q))
+      .sort((a, b) => order[a.level] - order[b.level]);
+    const f = d3.format('.3~g');
+    tb.replaceChildren(...keep.map((d) => {
+      const tr = document.createElement('tr'); tr.dataset.key = d.column;
+      const name = td(d.name); name.style.fontFamily = 'var(--font-anthropic-mono, ui-monospace, monospace)';
+      const fl = td(''); if (d.flags) { const p = document.createElement('span'); p.className = 'hv-pill raw'; p.textContent = d.flags; fl.appendChild(p); }
+      tr.append(name, td(d.level), td(d.group), td(d.transform), td(d.clip || ''), td(f(d.p01), 'num'), td(f(d.p50), 'num'), td(f(d.p99), 'num'), td(d3.format('.0%')(d.zero), 'num'), fl, td(d.why, 'why'));
+      return tr;
+    }));
+  });
+
+  // ---- grouped bars: groups x 2 series (muted, accent)
+  const grouped = (el, rows, o) => {
+    const { svg, w, h } = H.svg(el, 250);
+    const groups = o.groups;
+    const ys = d3.scaleLinear().domain([Math.min(0, d3.min(rows, o.val)), 1]).nice();
+    const yl = H.textW(svg, ys.ticks(5).map(H.f2));
+    const m = { l: yl + 14, r: 8, t: 16, b: 40 };
+    const x0 = d3.scaleBand().domain(groups.map((g) => g.key)).range([m.l, w - m.r]).paddingInner(0.25);
+    const x1 = d3.scaleBand().domain(o.series).range([0, x0.bandwidth()]).padding(0.08);
+    ys.range([h - m.b, m.t]);
+    H.grid(svg.append('g'), ys, m.l, w - m.r);
+    svg.append('line').attr('x1', m.l).attr('x2', w - m.r).attr('y1', ys(0)).attr('y2', ys(0)).attr('stroke', 'var(--cds-chart-axis)');
+    svg.append('g').attr('transform', `translate(${m.l},0)`).call(d3.axisLeft(ys).ticks(5).tickFormat(H.f2).tickSize(0)).call(H.axis).call((a) => a.select('.domain').remove());
+    const lab = svg.append('g');
+    groups.forEach((g) => {
+      const cx = x0(g.key) + x0.bandwidth() / 2;
+      lab.append('text').attr('x', cx).attr('y', h - m.b + 14).attr('text-anchor', 'middle').text(g.l1);
+      lab.append('text').attr('x', cx).attr('y', h - m.b + 28).attr('text-anchor', 'middle').text(g.l2);
+    });
+    const tip = H.tip(el);
+    const data = rows.filter((d) => groups.some((g) => g.key === o.group(d)));
+    svg.append('g').selectAll('rect').data(data).join('rect')
+      .attr('x', (d) => x0(o.group(d)) + x1(o.series_of(d))).attr('width', x1.bandwidth())
+      .attr('y', (d) => ys(Math.max(0, o.val(d)))).attr('height', (d) => Math.abs(ys(o.val(d)) - ys(0))).attr('rx', 2)
+      .attr('fill', (d) => o.series_of(d) === o.series[1] ? H.color(0) : 'var(--cds-chart-muted)')
+      .on('pointerenter pointermove', (ev, d) => { const [px, py] = d3.pointer(ev, el); tip.show(px, py, o.head(d), o.tip(d)); })
+      .on('pointerleave', () => tip.hide());
+    svg.append('g').selectAll('text').data(data).join('text')
+      .attr('x', (d) => x0(o.group(d)) + x1(o.series_of(d)) + x1.bandwidth() / 2).attr('y', (d) => ys(Math.max(0, o.val(d))) - 4)
+      .attr('text-anchor', 'middle').text((d) => H.f2(o.val(d)));
+  };
+  const GROUPS = [
+    { key: 'y_dtemp_1h|pid_water', l1: 'Temperature', l2: 'baseline-run' },
+    { key: 'y_dtemp_1h|varied', l1: 'Temperature', l2: 'varied-run' },
+    { key: 'y_shortfall_1h|pid_water', l1: 'Comfort penalty', l2: 'baseline-run' },
+    { key: 'y_shortfall_1h|varied', l1: 'Comfort penalty', l2: 'varied-run' },
+  ];
+  const encDraw = (name, field, label) => dash.draw(name, (el) => {
+    const rows = H.get('encoding_eval'); H.fail(el, 'encoding_eval'); if (!rows) return;
+    grouped(el, rows, { groups: GROUPS, series: ['v1', 'v2'], group: (d) => d.target + '|' + d.test, series_of: (d) => d.encoding, val: (d) => d[field],
+      head: (d) => d.target_label + ' · ' + d.test_label, tip: (d) => [[null, (d.encoding === 'v2' ? 'Version 2' : 'Version 1') + ', ' + label, H.f3(d[field])], [null, 'Features', d.n_features]] });
+  });
+  encDraw('enc-gb', 'gb', 'gradient boosting');
+  encDraw('enc-mlp', 'mlp', 'neural network');
+  dash.draw('data-eval', (el) => {
+    const rows = H.get('data_eval'); H.fail(el, 'data_eval'); if (!rows) return;
+    grouped(el, rows, { groups: GROUPS, series: ['shipped, pid_water', 'varied collection'], group: (d) => d.target + '|' + d.test, series_of: (d) => d.train, val: (d) => d.r2,
+      head: (d) => d.target_label + ' · ' + d.test_label, tip: (d) => [[null, d.train === 'varied collection' ? 'Varied collection' : 'Shipped, best baseline', H.f3(d.r2)], [null, 'Buildings', d.buildings], [null, 'Controllers', d.behaviours]] });
+  });
+
+  const pick = (id, key, field) => { const r = H.get(id); const row = r && r.find((d) => d.key === key); return row ? row[field] : null; };
+  const num = (name, id, key, field) => dash.draw(name, (el) => { const v = pick(id, key, field); el.textContent = v == null ? '—' : H.f2(v); });
+  num('s-var', 'scale_eval', 'varied collection|320000|varied', 'r2');
+  num('s-ship', 'scale_eval', 'shipped, pid_water|320000|varied', 'r2');
+  num('e-v1', 'encoding_eval', 'v1|y_shortfall_1h|varied', 'mlp');
+  num('e-v2', 'encoding_eval', 'v2|y_shortfall_1h|varied', 'mlp');
+
+  dash.draw('scale', (el) => {
+    const all = H.get('scale_eval'); H.fail(el, 'scale_eval'); if (!all) return;
+    const rows = all.filter((d) => d.test === 'varied');
+    const srcs = ['shipped, pid_water', 'varied collection'];
+    const { svg, w, h } = H.svg(el, 240);
+    const ys = d3.scaleLinear().domain([d3.min(rows, (d) => d.r2) - 0.02, d3.max(rows, (d) => d.r2) + 0.02]).nice();
+    const yl = H.textW(svg, ys.ticks(5).map(H.f2));
+    const m = { l: yl + 14, r: 52, t: 10, b: 26 };
+    const xs = d3.scaleLog().domain(d3.extent(rows, (d) => d.rows)).range([m.l, w - m.r]);
+    ys.range([h - m.b, m.t]);
+    H.grid(svg.append('g'), ys, m.l, w - m.r);
+    const xt = [...new Set(rows.map((d) => d.rows))];
+    svg.append('g').attr('transform', `translate(0,${h - m.b})`).call(d3.axisBottom(xs).tickValues(xt).tickFormat(d3.format('~s'))).call(H.axis);
+    svg.append('g').attr('transform', `translate(${m.l},0)`).call(d3.axisLeft(ys).ticks(5).tickFormat(H.f2).tickSize(0)).call(H.axis).call((a) => a.select('.domain').remove());
+    const tip = H.tip(el);
+    srcs.forEach((src, i) => {
+      const pts = rows.filter((d) => d.train === src).sort((a, b) => a.rows - b.rows);
+      const col = i ? H.color(0) : H.css('--cds-chart-muted') || 'gray';
+      svg.append('path').datum(pts).attr('fill', 'none').attr('stroke', col).attr('stroke-width', 2).attr('stroke-linejoin', 'round').attr('stroke-linecap', 'round')
+        .attr('d', d3.line().x((d) => xs(d.rows)).y((d) => ys(d.r2)));
+      svg.append('g').selectAll('circle').data(pts).join('circle').attr('cx', (d) => xs(d.rows)).attr('cy', (d) => ys(d.r2)).attr('r', 4.5)
+        .attr('fill', col).attr('stroke', 'var(--color-panel)').attr('stroke-width', 1.5)
+        .on('pointerenter pointermove', (ev, d) => { const [px, py] = d3.pointer(ev, el); tip.show(px, py, d3.format(',')(d.rows) + ' training rows', [[col, src === 'varied collection' ? 'Varied collection' : 'Shipped, best baseline', H.f3(d.r2)]]); })
+        .on('pointerleave', () => tip.hide());
+      const last = pts[pts.length - 1];
+      if (last) svg.append('text').attr('x', xs(last.rows) + 8).attr('y', ys(last.r2)).attr('dy', '0.35em').text(H.f2(last.r2));
+    });
+  });
+
+  dash.draw('ablation', (el) => {
+    const rows = H.get('ablation_eval'); H.fail(el, 'ablation_eval'); if (!rows) return;
+    const keys = ['drop_varied', 'drop_pid_water'];
+    const rowH = 30;
+    const h = rows.length * rowH + 30;
+    const { svg, w } = H.svg(el, h);
+    const lw = H.textW(svg, rows.map((d) => d.group));
+    const m = { l: lw + 12, r: 44, t: 4, b: 26 };
+    const ext = d3.extent(rows.flatMap((d) => keys.map((k) => d[k])));
+    const xs = d3.scaleLinear().domain([Math.min(0, ext[0]), Math.max(0.01, ext[1])]).nice().range([m.l, w - m.r]);
+    const ys = d3.scaleBand().domain(rows.map((d) => d.group)).range([m.t, h - m.b]).padding(0.2);
+    const y1 = d3.scaleBand().domain(keys).range([0, ys.bandwidth()]).padding(0.1);
+    svg.append('g').selectAll('line').data(xs.ticks(5)).join('line').attr('x1', (d) => xs(d)).attr('x2', (d) => xs(d)).attr('y1', m.t).attr('y2', h - m.b).attr('stroke', 'var(--cds-chart-grid)');
+    svg.append('line').attr('x1', xs(0)).attr('x2', xs(0)).attr('y1', m.t).attr('y2', h - m.b).attr('stroke', 'var(--cds-chart-axis)');
+    svg.append('g').attr('transform', `translate(0,${h - m.b})`).call(d3.axisBottom(xs).ticks(Math.max(3, Math.floor(w / 100))).tickFormat(d3.format('+.2~f'))).call(H.axis);
+    svg.append('g').selectAll('text').data(rows).join('text').attr('x', m.l - 8).attr('y', (d) => ys(d.group) + ys.bandwidth() / 2).attr('dy', '0.35em').attr('text-anchor', 'end').text((d) => d.group);
+    const tip = H.tip(el);
+    svg.append('g').selectAll('rect').data(rows.flatMap((d) => keys.map((k, i) => ({ d, k, i })))).join('rect')
+      .attr('x', (e) => xs(Math.min(0, e.d[e.k]))).attr('width', (e) => Math.abs(xs(e.d[e.k]) - xs(0))).attr('y', (e) => ys(e.d.group) + y1(e.k)).attr('height', y1.bandwidth()).attr('rx', 2)
+      .attr('fill', (e) => H.color(e.i))
+      .on('pointerenter pointermove', (ev, e) => { const [px, py] = d3.pointer(ev, el); tip.show(px, py, e.d.group + ' (' + e.d.n + ' columns)', [[H.color(0), 'Varied controllers', d3.format('+.4f')(e.d.drop_varied)], [H.color(1), 'Best baseline', d3.format('+.4f')(e.d.drop_pid_water)]]); })
       .on('pointerleave', () => tip.hide());
   });
 })();

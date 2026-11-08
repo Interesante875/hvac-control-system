@@ -1,118 +1,209 @@
-"""Building-size-independent feature encoding of the raw observation.
+"""Building-size-independent feature encoding of the raw observation (version 2).
 
 Why re-encode
 -------------
 The environment's observation vector is not consistently scaled. Its
 normaliser matches field names *exactly* against a 13-entry table and passes
-every other field through untouched, so one vector mixes:
+every other field through untouched, so one vector mixes z-scored values
+(zone temperature, damper, reheat), raw kelvin (setpoints, outside air, supply
+air and water temperature), raw pascals, raw m3/s and head counts. It repeats
+one 24 h cycle as 12 sin/cos pairs, duplicates sensors and setpoints, and
+changes length and layout with every building.
 
-* z-scored values: zone temperature ((K - 295) / 5), damper and reheat
-  positions, hot-water dp setpoint;
-* raw kelvin: zone heating/cooling setpoints, outside air, supply air and
-  supply water temperatures;
-* raw pascals (0-2000), raw m3/s airflow, raw occupant counts (which grow with
-  building size), request counts equal to the number of zones served.
+How features are defined
+------------------------
+Every feature is declared once in ``ZONE_SPEC`` / ``GLOBAL_SPEC`` with its unit,
+transform, clip and the reason for it. The encoder computes them in that
+order, ``docs/FEATURES.md`` is generated from the same table, and the report
+reads it, so the three cannot drift apart.
 
-It is also highly redundant: 12 sin/cos pairs of hour-of-day all at the same
-24 h frequency (24 columns, rank 2), the same for day-of-week, AHU sensors equal
-to their setpoints, three identical fan run flags per AHU, the outside air
-temperature repeated once per AHU, and a per-zone airflow setpoint that never
-changes. Its length (and the meaning of each position) changes per building.
-
-What this produces
-------------------
-:class:`BuildingEncoder` is built once per building from the metadata the
-policy receives at runtime, and turns each observation into
-
-* ``zone``  (V, F_zone)  one row per zone, physical units, comparable across
-  buildings, including the zone's AHU and hot-water context,
-* ``glob``  (F_glob,)    building-wide context (weather, time, schedule).
-
-Everything is computable from ``obs`` + metadata + the encoder's own history,
-so the same class is used to build training data offline and inside a
-submitted policy. Scaling uses fixed physical constants (not statistics fitted
-to the training set), so an unseen building or climate cannot shift them.
+Practices applied to every column
+---------------------------------
+* Physical units first, then a fixed physical scale (5 K = the reward's
+  comfort knee, 2000 Pa = the fan's range), never statistics fitted on one
+  dataset, so an unseen building or climate cannot move the scale.
+  ``FeatureScaler`` adds an optional robust standardisation fitted on the
+  train split only, for models that need unit variance.
+* Heavy-tailed signed values (5-minute temperature change, whose 0.1-99.9%
+  range is +-110 K/h) go through ``asinh``: linear near zero, logarithmic in
+  the tails, sign preserved. Zero-inflated, unbounded positives (the
+  quadratic comfort shortfall, skew 21) go through ``log1p`` with a separate
+  0/1 indicator. Everything is clipped to a stated range.
+* A reading that means nothing while its equipment is off (supply-air
+  temperature of a stopped AHU, pump pressure of a stopped pump) is gated to 0
+  by its run flag, so the run flag carries the state and the reading never
+  lies.
+* Constant or duplicate columns are dropped (cooling-request fraction is
+  always 1; static pressure tracks airflow at r=0.96), and two-valued columns
+  become explicit 0/1 flags.
+* Physics-shaped interactions that no single column holds: heat the supply
+  air can deliver (airflow x damper x (supply - zone temperature)) and heat
+  the reheat coil can deliver (pump x valve x (water - zone temperature)).
+* History that the model would otherwise need a sequence model for: 5-minute
+  and 1-hour changes, a 6-hour moving average of zone temperature, 6 h and
+  24 h moving averages of outdoor temperature (the envelope's thermal lag),
+  hours out of band, hours since the AHU switched.
+* Everything is computable from the observation plus the metadata a policy
+  receives, so the same class builds training data and runs in a submission.
 """
 
 from __future__ import annotations
 
 import re
 from collections import deque
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
 # Normalisation the environment applies to the few fields it does normalise.
-# (StandardScoreObservationNormalizer, exact-name match; see module docstring.)
 ZONE_T_MEAN, ZONE_T_STD = 295.0, 5.0
-FRAC_MEAN, FRAC_STD = 0.5, 0.5          # damper / reheat / run flags
+FRAC_MEAN, FRAC_STD = 0.5, 0.5          # damper / reheat / water run status
 HWS_DP_MEAN, HWS_DP_STD = 10.0, 6.0     # hws differential_pressure_setpoint
 
-# Reward constants (identical in every shipped and generated config).
+# Plant and reward constants (identical in every shipped and generated config).
 COMFORT_KNEE_K = 5.0                    # productivity_deviation_ref
 MAX_RECIRC = 0.70
 MIN_SAT_K = 285.0
+DAMPER_FLOOR = 0.10
 STEPS_PER_HOUR = 12
-CONTROL_VOLUME_CM = 20                  # simulator grid cell edge, every config
+CONTROL_VOLUME_CM = 20
 
-# Fixed scales for the encoded features.
 T_REF_K = 293.15                        # 20 C
-DT_SCALE = COMFORT_KNEE_K               # temperature differences in "knees"
+OA_REF_K = 283.15                       # 10 C
 OA_SCALE = 15.0
-PRESSURE_MAX = 2000.0
 WATER_T_REF, WATER_T_SCALE = 330.0, 20.0
 
-_VAV = re.compile(r"^VAV_(\d+)_(.+)$")
-_AHU = re.compile(r"^ahs_(ahu_\d+)_(.+)$")
 
-ZONE_FEATURES = [
-    # thermal state relative to the comfort band (the reward's own geometry)
-    "temp_minus_band_mid",      # (T - (h+c)/2) / 5K
-    "below_heat_sp",            # max(0, h - T) / 5K
-    "above_cool_sp",            # max(0, T - c) / 5K
-    "comfort_shortfall",        # reward-shaped: d/w if d<=w else 1+((d-w)/w)^2
-    "band_half_width",          # (c - h) / 2 / 5K   (comfort vs eco setback)
-    "temp_abs",                 # (T - 20C) / 5K
-    # recent dynamics (from encoder history)
-    "dtemp_5min",               # K per step, x12 -> K/h
-    "dtemp_1h",                 # T - T(1h ago), K
-    # neighbourhood
-    "temp_minus_ahu_mean",      # relative to the zones sharing its AHU, /5K
-    "temp_minus_ahu_worst",     # distance to that AHU's worst zone shortfall
-    "temp_minus_outside",       # (T - OA) / 15K
-    # actuator state (what the box actually took, after floors)
-    "damper", "reheat",         # fractions in [0, 1]
-    # static geometry (from floor_plan / zone_map)
-    "log_area",                 # log(area / 50 m2)
-    "exterior_fraction",        # share of the zone's boundary cells on the facade
-    # its air handler
-    "ahu_run",
-    "ahu_supply_temp",          # (SAT - 20C) / 5K
-    "ahu_sat_minus_zone",       # (SAT - T) / 5K: sign = heating/cooling potential
-    "ahu_static_pressure",      # Pa / 2000
-    "ahu_recirculation",        # fraction
-    "ahu_flow_per_zone",        # m3/s per zone served
-    "ahu_cooling_request_frac", # requests / zones served
-    "ahu_n_zones",              # zones served / 10
-    # hot-water loop
-    "water_supply_temp",        # (K - 330) / 20
-    "water_dp",                 # setpoint, native / 20
-    "pump_run",
+@dataclass(frozen=True)
+class Feature:
+    name: str
+    group: str
+    unit: str
+    source: str
+    transform: str
+    clip: tuple[float, float] | None
+    why: str
+
+
+Z, G = "zone", "global"
+ZONE_SPEC: list[Feature] = [
+    # -- thermal state relative to the comfort band
+    Feature("temp_minus_band_mid", "comfort band", "5 K", "zone temp, heating & cooling setpoints",
+            "(T - (h+c)/2) / 5", (-4, 4), "Where the zone sits in its own band; setpoints move between comfort and eco hours, so absolute temperature alone is ambiguous."),
+    Feature("below_heat_sp", "comfort band", "5 K", "zone temp, heating setpoint",
+            "max(0, h - T) / 5", (0, 4), "Hinge: only the side of the band that is violated counts, as in the reward."),
+    Feature("above_cool_sp", "comfort band", "5 K", "zone temp, cooling setpoint",
+            "max(0, T - c) / 5", (0, 4), "Hinge, cooling side."),
+    Feature("out_of_band", "comfort band", "0/1", "zone temp, setpoints",
+            "1 if outside the band", None, "Zero-inflated shortfall gets an explicit indicator, so a model separates 'in band' from 'slightly out'."),
+    Feature("log_shortfall", "comfort band", "log", "zone temp, setpoints",
+            "log1p(reward shortfall)", (0, 3), "The reward's own per-zone penalty (linear to 5 K, then quadratic). Skew 21 raw; log1p tames the tail."),
+    Feature("eco_setback", "comfort band", "0/1", "heating & cooling setpoints",
+            "1 if band wider than 5 K", None, "Band width takes only two values (3 K comfort, 9 K eco), so it is a flag."),
+    Feature("temp_abs", "comfort band", "5 K", "zone temp",
+            "(T - 20 C) / 5", (-4, 4), "Absolute temperature drives losses to outside and neighbours."),
+    # -- recent dynamics (encoder history)
+    Feature("dtemp_5min", "dynamics", "asinh(K / 0.5)", "zone temp, previous step",
+            "asinh((T - T[t-1]) / 0.5 K)", (-4, 4), "Air temperature jumps several K per step when an AHU switches; 0.1-99.9% range is +-110 K/h. asinh keeps sign, is linear near 0 and compresses the tail."),
+    Feature("dtemp_1h", "dynamics", "asinh(K)", "zone temp, 1 h ago",
+            "asinh(T - T[t-12])", (-4, 4), "The slower trend under the switching spikes."),
+    Feature("temp_minus_ema_6h", "dynamics", "5 K", "zone temp history",
+            "(T - EMA_6h(T)) / 5", (-4, 4), "Distance from the zone's recent mean: a cheap stand-in for the thermal mass state."),
+    Feature("hours_out_of_band", "dynamics", "log h", "zone temp, setpoints history",
+            "log1p(hours continuously out of band)", (0, 5), "A zone left out for hours needs more than one that just drifted out; the reward's tail punishes neglect."),
+    # -- neighbourhood
+    Feature("temp_minus_ahu_mean", "neighbours", "5 K", "zone temps of the same AHU",
+            "(T - mean T of AHU's zones) / 5", (-4, 4), "One supply temperature serves all zones on an AHU; a zone's position among them decides whether its damper or the AHU should act."),
+    Feature("ahu_worst_log_shortfall", "neighbours", "log", "zone temps and setpoints of the same AHU",
+            "log1p(max shortfall on the AHU)", (0, 3), "The AHU-level decision is driven by its worst zone, not its average."),
+    Feature("gap_to_ahu_worst", "neighbours", "log", "same",
+            "worst - own log-shortfall", (0, 3), "How far this zone is from being the one that matters."),
+    Feature("temp_minus_outside", "neighbours", "15 K", "zone temp, outside air",
+            "(T - OA) / 15", (-4, 4), "Driving force for envelope heat loss or gain."),
+    # -- the zone's own actuators, as the boxes actually took them
+    Feature("damper_open", "zone actuators", "fraction above floor", "damper position",
+            "(d - 0.1) / 0.9", (0, 1), "The simulator floors dampers at 10%; rescaling makes 0 mean 'at the floor'."),
+    Feature("reheat", "zone actuators", "fraction", "reheat valve position",
+            "v", (0, 1), "Already a fraction once de-normalised."),
+    # -- static geometry
+    Feature("log_area", "geometry", "log(m2 / 50)", "floor plan, zone map",
+            "log(area / 50 m2)", (-3, 3), "Heat capacity and internal gains scale with area; log because areas span 20-200 m2."),
+    Feature("exterior_fraction", "geometry", "fraction", "floor plan, zone map",
+            "facade cells / boundary cells", (0, 1), "Exposure to outdoor air."),
+    # -- its air handler
+    Feature("ahu_run", "air handler", "0/1", "supply fan run", "s", None, "On/off state; gates the readings below."),
+    Feature("ahu_supply_temp_on", "air handler", "5 K", "supply air temperature, fan run",
+            "run x (SAT - 20 C) / 5", (-4, 4), "A stopped AHU still reports its last command as supply temperature; gating by run stops that from lying."),
+    Feature("ahu_sat_minus_zone_on", "air handler", "5 K", "supply air temp, zone temp, run",
+            "run x (SAT - T) / 5", (-4, 4), "Sign says whether the supply air heats or cools this zone."),
+    Feature("ahu_flow_per_zone", "air handler", "m3/s per zone", "supply airflow sensor, zones served",
+            "flow / zones served", (0, 4), "Airflow, normalised by how many zones share it. Static pressure is dropped: r=0.96 with this. Clip raised from 2 after 2% of rows hit it."),
+    Feature("ahu_recirculation", "air handler", "fraction of cap", "recirculation command",
+            "min(r, 0.7) / 0.7", (0, 1), "The simulator caps recirculation at 70%; commands above it do nothing."),
+    Feature("ahu_n_zones", "air handler", "10 zones", "AHU assignment", "zones served / 10", (0, 2), "Static: how widely the AHU's air is shared."),
+    Feature("ahu_hours_since_switch", "air handler", "log h", "fan run history",
+            "log1p(hours since run changed)", (0, 5), "Zone air reacts within minutes of a switch, then settles; this tells the model which regime it is in."),
+    # -- physics interactions
+    Feature("air_heat_drive", "physics", "asinh(m3/s K)", "run, airflow, damper, supply & zone temp",
+            "asinh(run x flow/zone x damper_open x (SAT - T))", (-5, 5), "Heat the supply air can move into the zone is roughly airflow x damper x temperature difference; no single column holds it."),
+    Feature("reheat_drive", "physics", "40 K", "pump, reheat valve, water & zone temp",
+            "pump x valve x (Tw - T) / 40", (0, 2), "Heat the reheat coil can add."),
+    # -- hot-water loop
+    Feature("water_supply_temp_on", "hot water", "20 K", "supply water temp, pump",
+            "pump x (Tw - 330 K) / 20", (-2, 2), "Gated by the pump like the AHU readings."),
+    Feature("pump_run", "hot water", "0/1", "hot-water run status", "s", None, "Pump state."),
 ]
 
-GLOBAL_FEATURES = [
-    "outside_temp",             # (OA - 10C) / 15K
-    "outside_dtemp_1h",         # K/h
-    "mixed_air_min",            # coldest achievable mixed air vs min SAT, /5K
-    "sat_inert",                # 1 if AHU cooling setpoint cannot bite (OA < -6.8C)
-    "hour_sin", "hour_cos", "dow_sin", "dow_cos", "is_weekend",
-    "comfort_now", "comfort_soon",
-    "hours_to_comfort",         # until next comfort-mode start, /24 (0 if in comfort)
-    "occupants_per_zone",       # num_occupants / V
-    "occupied",                 # num_occupants > 0  (comfort only scored then)
-    "n_zones_log",              # log(V / 50)
-    "n_ahus",                   # K / 10
+GLOBAL_SPEC: list[Feature] = [
+    Feature("outside_ema_24h", "weather", "15 K", "outside air history", "(EMA_24h(OA) - 10 C) / 15", (-4, 4), "Climate level: the closest thing to a weather label the policy can have. (The raw observation repeats outdoor temperature per AHU; one value is used.)"),
+    Feature("outside_vs_24h", "weather", "5 K", "outside air temp and history", "(OA - EMA_24h(OA)) / 5", (-4, 4), "Current outdoor temperature as a departure from its 24 h mean: the daily swing. Outdoor temperature itself was r>0.95 with the 24 h mean; zones still see it directly in temp_minus_outside."),
+    Feature("outside_trend_6h", "weather", "5 K", "outside air history", "(EMA_6h(OA) - EMA_24h(OA)) / 5", (-4, 4), "The envelope lags outdoor temperature by hours. Expressed against the 24 h mean, because the 6 h mean alone was r>0.95 with it."),
+    Feature("outside_dtemp_1h", "weather", "asinh(K)", "outside air history", "asinh(OA - OA[t-12])", (-4, 4), "Fronts and the daily swing."),
+    Feature("sat_inert", "weather", "0/1", "zone temps, outside air", "1 if 0.7 x mean T + 0.3 x OA < 285 K", None, "The coldest air the AHU can mix is below its lowest setpoint, so the supply-temperature action does nothing (31% of hours in Fairbanks). The margin itself was dropped: r>0.95 with outdoor temperature."),
+    Feature("hour_sin", "time", "unit circle", "hod features", "sin(2 pi h / 24)", None, "One pair replaces 12 phase-shifted copies of the same cycle."),
+    Feature("hour_cos", "time", "unit circle", "hod features", "cos(2 pi h / 24)", None, "Pair with hour_sin."),
+    Feature("dow_sin", "time", "unit circle", "dow features", "sin(2 pi d / 7)", None, "One pair replaces 12 copies."),
+    Feature("dow_cos", "time", "unit circle", "dow features", "cos(2 pi d / 7)", None, "Pair with dow_sin."),
+    Feature("is_weekend", "time", "0/1", "dow features", "d >= 5", None, "Comfort mode never runs on weekends; a flag is clearer than the cycle."),
+    Feature("is_holiday", "time", "0/1", "metadata holidays", "date in holidays", None, "Empty in every building so far, kept so a test building with holidays is handled."),
+    Feature("comfort_now", "schedule", "0/1", "comfort_mode_now", "s", None, "Comfort scored now."),
+    Feature("comfort_soon", "schedule", "0/1", "comfort_mode_soon", "s", None, "Differs from now only in the hour before 06:00 and 19:00: a one-hour lookahead."),
+    Feature("hours_to_comfort", "schedule", "24 h", "time, schedule, weekday", "hours until comfort starts / 24", (0, 3), "How long a pre-heat or pre-cool has, including over weekends."),
+    Feature("hours_left_in_comfort", "schedule", "12 h", "time, schedule", "hours until comfort ends / 12", (0, 1.2), "Late in the day, conditioning that won't pay back before 19:00 can stop."),
+    Feature("occupants_per_zone", "occupancy", "log", "num_occupants, zones", "log1p(occupants / zones)", (0, 2), "Raw count grows with building size; per zone and log-scaled it compares across buildings."),
+    Feature("occupied", "occupancy", "0/1", "num_occupants", "occupants > 0", None, "Comfort is only scored when anyone is in."),
+    Feature("occupancy_change_1h", "occupancy", "per zone", "num_occupants history", "(occ - occ[t-12]) / zones", (-2, 2), "Arrivals and departures."),
+    Feature("bldg_mean_log_shortfall", "building state", "log", "all zones", "mean log1p(shortfall)", (0, 3), "Building-wide comfort state for plant-level decisions (pump, water temperature)."),
+    Feature("bldg_frac_out_of_band", "building state", "fraction", "all zones", "share of zones out of band", (0, 1), "How widespread the problem is."),
+    Feature("bldg_worst_log_shortfall", "building state", "log", "all zones", "max log1p(shortfall)", (0, 3), "The single worst zone."),
+    Feature("n_zones_log", "building", "log(V / 50)", "observation layout", "log(zones / 50)", (-2, 2), "Building size; static."),
+    Feature("n_ahus", "building", "10 AHUs", "AHU assignment", "AHUs / 10", (0, 3), "Plant size; static."),
+    Feature("mean_exterior_fraction", "building", "fraction", "floor plan", "mean zone facade share", (0, 1), "How exposed the building is overall; static."),
 ]
+
+ZONE_FEATURES = [f.name for f in ZONE_SPEC]
+GLOBAL_FEATURES = [f.name for f in GLOBAL_SPEC]
+FEATURE_VERSION = 2
+
+# Raw observation fields deliberately not used, and why (for the catalog).
+DROPPED = {
+    "VAV supply_air_flowrate_setpoint": "Constant (2.0) in every building.",
+    "AHU supply_air_temperature_setpoint": "Identical to the sensor.",
+    "AHU supply_air_static_pressure_setpoint": "Identical to the sensor.",
+    "AHU supply_air_static_pressure_sensor": "Tracks airflow (r=0.96); airflow is the physical quantity.",
+    "AHU supply_air_flowrate_setpoint": "Identical to the sensor.",
+    "AHU outside_air_flowrate_sensor": "Follows airflow x (1 - recirculation).",
+    "AHU outside_air_temperature_sensor (all but one)": "The same value repeated per AHU.",
+    "AHU supervisor_run_command / exhaust_fan_run_command": "Identical to supply fan run.",
+    "AHU supply / discharge fan speed": "Follow static pressure.",
+    "AHU cooling_request_count": "Equals zones served whenever the AHU is on (fraction is 1.0 in 99.9% of rows).",
+    "water supply_water_temperature_setpoint": "Tracked by the sensor.",
+    "water differential_pressure_sensor / setpoint": "Read 0 whenever the pump is off (r>0.95 with pump run); the commanded pump pressure is kept as an action column.",
+    "water heating_request_count": "Equals the number of zones.",
+    "water supervisor_run_command": "Identical to run status.",
+    "hod_* / dow_* copies 001-011": "Phase-shifted copies of the same cycle.",
+}
 
 
 def comfort_shortfall(dev_k: np.ndarray, knee: float = COMFORT_KNEE_K) -> np.ndarray:
@@ -148,19 +239,29 @@ def zone_geometry(meta: dict[str, Any], zone_ids: list[str]) -> dict[str, np.nda
             continue
         cells = np.asarray(cells)
         out["log_area"][i] = np.log(max(len(cells) * cv_area_m2, 1.0) / 50.0)
-        # boundary cells of the zone, and how many of them touch a facade wall
         occ = np.zeros((h, w), bool)
         occ[cells[:, 0], cells[:, 1]] = True
-        n_boundary = n_facade = 0
-        for r, c in cells:
-            nb = [(r + dr, c + dc) for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1))]
-            nb = [(a, b) for a, b in nb if 0 <= a < h and 0 <= b < w]
-            if any(not occ[a, b] for a, b in nb):
-                n_boundary += 1
-                if any(ext[a, b] for a, b in nb):
-                    n_facade += 1
-        out["exterior_fraction"][i] = n_facade / max(n_boundary, 1)
+        # Boundary cells: a 4-neighbour outside the zone. Facade: that neighbour is exterior wall.
+        pad = np.pad(occ, 1)
+        epad = np.pad(ext, 1)
+        r, c = cells[:, 0] + 1, cells[:, 1] + 1
+        nb_out = np.zeros(len(cells), bool)
+        nb_ext = np.zeros(len(cells), bool)
+        for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nb_out |= ~pad[r + dr, c + dc]
+            nb_ext |= epad[r + dr, c + dc]
+        n_boundary = int(nb_out.sum())
+        out["exterior_fraction"][i] = float((nb_out & nb_ext).sum()) / max(n_boundary, 1)
     return out
+
+
+def _ema_alpha(hours: float) -> float:
+    return 1.0 - np.exp(-1.0 / (hours * STEPS_PER_HOUR))
+
+
+A6, A24 = _ema_alpha(6), _ema_alpha(24)
+_VAV = re.compile(r"^VAV_(\d+)_(.+)$")
+_AHU = re.compile(r"^ahs_(ahu_\d+)_(.+)$")
 
 
 class BuildingEncoder:
@@ -197,11 +298,9 @@ class BuildingEncoder:
         self.i_damper = col("supply_air_damper_percentage_command")
         self.i_reheat = col("reheat_valve_percentage_command")
         self.i_sat = acol("supply_air_temperature_sensor")
-        self.i_sp = acol("supply_air_static_pressure_sensor")
         self.i_recirc = acol("recirculation_percentage_command")
         self.i_flow = acol("supply_air_flowrate_sensor")
         self.i_run = acol("supply_fan_run_command")
-        self.i_creq = acol("cooling_request_count")
         self.i_oa = ix[f"ahs_{self.ahu_names[0]}_outside_air_temperature_sensor"]
         self.i_wt = ix["hws_supply_water_temperature_sensor"]
         self.i_wdp = ix["hws_differential_pressure_setpoint"]
@@ -212,20 +311,30 @@ class BuildingEncoder:
         self.i_occ = ix["num_occupants"]
 
         self.zone_ahu = np.array([self.ahu_names.index(z2a[z]) for z in self.zone_ids])
-        self.ahu_n_zones = np.bincount(self.zone_ahu, minlength=K).astype(np.float32)
+        self.ahu_n_zones = np.bincount(self.zone_ahu, minlength=K).astype(np.float64)
         self.morning = int(meta.get("morning_start_hour", 6))
         self.evening = int(meta.get("evening_start_hour", 19))
+        self.holidays = {str(h)[:10] for h in (meta.get("holidays") or [])}
 
         geo = geometry if geometry is not None else zone_geometry(meta, self.zone_ids)
-        self.log_area = geo["log_area"]
-        self.exterior_fraction = geo["exterior_fraction"]
+        self.log_area = geo["log_area"].astype(np.float64)
+        self.exterior_fraction = geo["exterior_fraction"].astype(np.float64)
+        self._lo_z = np.array([f.clip[0] if f.clip else -np.inf for f in ZONE_SPEC])
+        self._hi_z = np.array([f.clip[1] if f.clip else np.inf for f in ZONE_SPEC])
+        self._lo_g = np.array([f.clip[0] if f.clip else -np.inf for f in GLOBAL_SPEC])
+        self._hi_g = np.array([f.clip[1] if f.clip else np.inf for f in GLOBAL_SPEC])
         self.reset()
 
     def reset(self) -> None:
         self._temp_hist: deque[np.ndarray] = deque(maxlen=STEPS_PER_HOUR + 1)
         self._oa_hist: deque[float] = deque(maxlen=STEPS_PER_HOUR + 1)
+        self._occ_hist: deque[float] = deque(maxlen=STEPS_PER_HOUR + 1)
+        self._t_ema = None
+        self._oa_ema6 = self._oa_ema24 = None
+        self._out_steps = np.zeros(self.V)
+        self._run_prev = None
+        self._since_switch = np.zeros(self.K)
 
-    # -- decoding helpers -------------------------------------------------
     def zone_temp_k(self, obs: np.ndarray) -> np.ndarray:
         return obs[self.i_temp] * ZONE_T_STD + ZONE_T_MEAN
 
@@ -239,80 +348,154 @@ class BuildingEncoder:
             day = (day + 1) % 7
         return h
 
-    # -- main entry ---------------------------------------------------------
-    def encode(self, obs: np.ndarray) -> dict[str, np.ndarray]:
+    def encode(self, obs: np.ndarray, timestamp: float | None = None) -> dict[str, np.ndarray]:
+        """Encode one observation. Call once per step, in order (keeps history)."""
         obs = np.asarray(obs, dtype=np.float64)
         T = self.zone_temp_k(obs)
         h, c = obs[self.i_heat], obs[self.i_cool]
-        oa = obs[self.i_oa]
+        oa = float(obs[self.i_oa])
+        occ = float(obs[self.i_occ])
+
+        # history
         self._temp_hist.append(T)
         self._oa_hist.append(oa)
-        prev = self._temp_hist[-2] if len(self._temp_hist) > 1 else T
-        hour_ago = self._temp_hist[0]
-        oa_hour_ago = self._oa_hist[0]
+        self._occ_hist.append(occ)
+        prev, hour_ago = (self._temp_hist[-2] if len(self._temp_hist) > 1 else T), self._temp_hist[0]
+        self._t_ema = T.copy() if self._t_ema is None else self._t_ema + A6 * (T - self._t_ema)
+        self._oa_ema6 = oa if self._oa_ema6 is None else self._oa_ema6 + A6 * (oa - self._oa_ema6)
+        self._oa_ema24 = oa if self._oa_ema24 is None else self._oa_ema24 + A24 * (oa - self._oa_ema24)
 
         dev = np.maximum(h - T, T - c)
         short = comfort_shortfall(dev)
+        lshort = np.log1p(short)
+        out = dev > 0
+        self._out_steps = np.where(out, self._out_steps + 1, 0)
+
         a = self.zone_ahu
+        n_served = self.ahu_n_zones[a]
         ahu_mean = np.bincount(a, weights=T, minlength=self.K) / np.maximum(self.ahu_n_zones, 1)
         ahu_worst = np.zeros(self.K)
-        np.maximum.at(ahu_worst, a, short)
+        np.maximum.at(ahu_worst, a, lshort)
 
+        run = (obs[self.i_run] > 0.5).astype(np.float64)
+        if self._run_prev is None:
+            self._since_switch[:] = 0
+        else:
+            self._since_switch = np.where(run != self._run_prev, 0, self._since_switch + 1)
+        self._run_prev = run
         sat = obs[self.i_sat]
-        run = obs[self.i_run]
-        n_served = self.ahu_n_zones[a]
+        flow_pz = obs[self.i_flow][a] / n_served
+        damper_open = np.clip((obs[self.i_damper] * FRAC_STD + FRAC_MEAN - DAMPER_FLOOR) / (1 - DAMPER_FLOOR), 0, 1)
+        reheat = np.clip(obs[self.i_reheat] * FRAC_STD + FRAC_MEAN, 0, 1)
+        pump = float(obs[self.i_pump] * FRAC_STD + FRAC_MEAN > 0.5)
+        tw = obs[self.i_wt]
+        run_z = run[a]
 
         zone = np.stack([
-            (T - (h + c) / 2) / DT_SCALE,
-            np.maximum(0, h - T) / DT_SCALE,
-            np.maximum(0, T - c) / DT_SCALE,
-            short,
-            (c - h) / 2 / DT_SCALE,
-            (T - T_REF_K) / DT_SCALE,
-            (T - prev) * STEPS_PER_HOUR,
-            T - hour_ago,
-            (T - ahu_mean[a]) / DT_SCALE,
-            ahu_worst[a] - short,
+            (T - (h + c) / 2) / COMFORT_KNEE_K,
+            np.maximum(0, h - T) / COMFORT_KNEE_K,
+            np.maximum(0, T - c) / COMFORT_KNEE_K,
+            out.astype(np.float64),
+            lshort,
+            ((c - h) > 5.0).astype(np.float64),
+            (T - T_REF_K) / COMFORT_KNEE_K,
+            np.arcsinh((T - prev) / 0.5),
+            np.arcsinh(T - hour_ago),
+            (T - self._t_ema) / COMFORT_KNEE_K,
+            np.log1p(self._out_steps / STEPS_PER_HOUR),
+            (T - ahu_mean[a]) / COMFORT_KNEE_K,
+            ahu_worst[a],
+            ahu_worst[a] - lshort,
             (T - oa) / OA_SCALE,
-            obs[self.i_damper] * FRAC_STD + FRAC_MEAN,
-            obs[self.i_reheat] * FRAC_STD + FRAC_MEAN,
+            damper_open,
+            reheat,
             self.log_area,
             self.exterior_fraction,
-            run[a],
-            (sat[a] - T_REF_K) / DT_SCALE,
-            (sat[a] - T) / DT_SCALE,
-            obs[self.i_sp][a] / PRESSURE_MAX,
-            obs[self.i_recirc][a],
-            obs[self.i_flow][a] / n_served,
-            obs[self.i_creq][a] / n_served,
+            run_z,
+            run_z * (sat[a] - T_REF_K) / COMFORT_KNEE_K,
+            run_z * (sat[a] - T) / COMFORT_KNEE_K,
+            flow_pz,
+            np.minimum(obs[self.i_recirc][a], MAX_RECIRC) / MAX_RECIRC,
             n_served / 10.0,
-            np.full(self.V, (obs[self.i_wt] - WATER_T_REF) / WATER_T_SCALE),
-            np.full(self.V, (obs[self.i_wdp] * HWS_DP_STD + HWS_DP_MEAN) / 20.0),
-            np.full(self.V, obs[self.i_pump] * FRAC_STD + FRAC_MEAN),
-        ], axis=1).astype(np.float32)
+            np.log1p(self._since_switch[a] / STEPS_PER_HOUR),
+            np.arcsinh(run_z * flow_pz * damper_open * (sat[a] - T)),
+            pump * reheat * (tw - T) / 40.0,
+            np.full(self.V, pump * (tw - WATER_T_REF) / WATER_T_SCALE),
+            np.full(self.V, pump),
+        ], axis=1)
+        zone = np.clip(zone, self._lo_z, self._hi_z).astype(np.float32)
 
         hs, hc = obs[self.i_hod[0]], obs[self.i_hod[1]]
         ds, dc = obs[self.i_dow[0]], obs[self.i_dow[1]]
         hour = (np.degrees(np.arctan2(hs, hc)) / 15.0) % 24
-        dow = int(round((np.degrees(np.arctan2(ds, dc)) / (360 / 7)))) % 7
-        return_air = float(T.mean())
-        mixed_min = MAX_RECIRC * return_air + (1 - MAX_RECIRC) * oa
-        occ = obs[self.i_occ]
+        dow = int(round(np.degrees(np.arctan2(ds, dc)) / (360 / 7))) % 7
+        is_holiday = 0.0
+        if timestamp is not None and self.holidays:
+            import datetime as _dt
+            is_holiday = float(_dt.datetime.utcfromtimestamp(timestamp).strftime("%Y-%m-%d") in self.holidays)
+        cnow = float(obs[self.i_cnow])
+        mixed = MAX_RECIRC * float(T.mean()) + (1 - MAX_RECIRC) * oa
+        left = max(0.0, self.evening - hour) if cnow > 0.5 else 0.0
         glob = np.array([
-            (oa - 283.15) / OA_SCALE,
-            oa - oa_hour_ago,
-            (mixed_min - MIN_SAT_K) / DT_SCALE,
-            float(mixed_min < MIN_SAT_K),
-            hs, hc, ds, dc, float(dow >= 5),
-            obs[self.i_cnow], obs[self.i_csoon],
-            self._hours_to_comfort(hour, dow, obs[self.i_cnow]) / 24.0,
-            occ / self.V,
+            (self._oa_ema24 - OA_REF_K) / OA_SCALE,
+            (oa - self._oa_ema24) / COMFORT_KNEE_K,
+            (self._oa_ema6 - self._oa_ema24) / COMFORT_KNEE_K,
+            np.arcsinh(oa - self._oa_hist[0]),
+            float(mixed < MIN_SAT_K),
+            hs, hc, ds, dc,
+            float(dow >= 5), is_holiday,
+            cnow, float(obs[self.i_csoon]),
+            self._hours_to_comfort(hour, dow, cnow) / 24.0,
+            left / 12.0,
+            np.log1p(occ / self.V),
             float(occ > 0),
-            np.log(self.V / 50.0),
-            self.K / 10.0,
-        ], dtype=np.float32)
+            (occ - self._occ_hist[0]) / self.V,
+            float(lshort.mean()), float(out.mean()), float(lshort.max()),
+            np.log(self.V / 50.0), self.K / 10.0, float(self.exterior_fraction.mean()),
+        ])
+        glob = np.clip(glob, self._lo_g, self._hi_g).astype(np.float32)
         return {"zone": zone, "glob": glob, "temp_k": T.astype(np.float32),
                 "shortfall": short.astype(np.float32)}
+
+
+class FeatureScaler:
+    """Optional robust standardisation, fitted on the train split only.
+
+    (x - median) / IQR per column, clipped to +-5, for models that want unit
+    scale (neural networks, linear models). 0/1 flags and columns whose IQR
+    is 0 (mostly-zero hinges) are scaled by their standard deviation instead,
+    or left alone if that is 0 too. Saved as JSON so a submission can ship it.
+    """
+
+    def __init__(self, center: dict[str, float] | None = None, scale: dict[str, float] | None = None):
+        self.center, self.scale = center or {}, scale or {}
+
+    def fit(self, df, columns: list[str]) -> "FeatureScaler":
+        for col in columns:
+            v = df[col].to_numpy(np.float64)
+            uniq = np.unique(v[: 100_000])
+            if len(uniq) <= 2:
+                self.center[col], self.scale[col] = 0.0, 1.0
+                continue
+            q1, med, q3 = np.percentile(v, [25, 50, 75])
+            iqr = q3 - q1
+            sd = v.std()
+            self.center[col] = float(med)
+            self.scale[col] = float(iqr / 1.349 if iqr > 1e-6 else (sd if sd > 1e-6 else 1.0))
+        return self
+
+    def transform(self, df, columns: list[str]):
+        out = df.copy()
+        for col in columns:
+            out[col] = np.clip((df[col] - self.center[col]) / self.scale[col], -5, 5).astype(np.float32)
+        return out
+
+    def to_json(self) -> dict:
+        return {"center": self.center, "scale": self.scale}
+
+    @classmethod
+    def from_json(cls, d: dict) -> "FeatureScaler":
+        return cls(d["center"], d["scale"])
 
 
 def decode_zone_actions(meta: dict, zone_ids: list[str], continuous: np.ndarray) -> dict:

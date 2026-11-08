@@ -25,7 +25,7 @@ import pandas as pd
 
 from hvacdata import paths
 from hvacdata.dataset import load_rollout
-from hvacdata.features import (GLOBAL_FEATURES, ZONE_FEATURES, BuildingEncoder,
+from hvacdata.features import (FEATURE_VERSION, GLOBAL_FEATURES, ZONE_FEATURES, BuildingEncoder,
                                decode_plant_actions, decode_zone_actions,
                                zone_geometry)
 
@@ -39,7 +39,15 @@ def _split_of(scenario_dir: str) -> str:
     return "val" if b.startswith("building_09") else "train"
 
 
-def encode_rollout(npz_path: str, out_root: str) -> dict:
+def _encoder_module(version: int):
+    """The feature encoder for a version: 2 is current, 1 kept for comparisons."""
+    import importlib
+    return importlib.import_module("hvacdata.features" if version == 2 else "hvacdata.features_v1")
+
+
+def encode_rollout(npz_path: str, out_root: str, version: int = FEATURE_VERSION) -> dict:
+    F = _encoder_module(version)
+    ZONE_FEATURES, GLOBAL_FEATURES = F.ZONE_FEATURES, F.GLOBAL_FEATURES
     paths.ensure_kit_importable()
     r = load_rollout(npz_path)
     s = r["summary"]
@@ -49,7 +57,7 @@ def encode_rollout(npz_path: str, out_root: str) -> dict:
     meta["zone_map"] = np.load(scen / "zone_map.npy")
     zone_ids = list(r["zone_ids"])
     geo = zone_geometry(meta, zone_ids)
-    enc = BuildingEncoder(meta, zone_ids=zone_ids, geometry=geo)
+    enc = F.BuildingEncoder(meta, zone_ids=zone_ids, geometry=geo)
 
     obs, T = r["obs"], len(r["reward"])
     Z = np.empty((T + 1, enc.V, len(ZONE_FEATURES)), np.float32)
@@ -57,13 +65,19 @@ def encode_rollout(npz_path: str, out_root: str) -> dict:
     TK = np.empty((T + 1, enc.V), np.float32)
     SH = np.empty((T + 1, enc.V), np.float32)
     for t in range(T + 1):
-        e = enc.encode(obs[t])
+        # obs[t] is the state after step t-1, stamped with that step's end time
+        e = (enc.encode(obs[t], float(r["timestamp"][t - 1]) if t > 0 else None) if version == 2
+             else enc.encode(obs[t]))
         Z[t], G[t], TK[t], SH[t] = e["zone"], e["glob"], e["temp_k"], e["shortfall"]
 
     station = s["weather"].rsplit("_", 1)[0]
     ids = {"building": s["building"], "weather": s["weather"], "station": station,
            "split": _split_of(s["scenario_dir"]), "policy": s["policy"],
-           "sigma": s["sigma"], "p_flip": s["p_flip"]}
+           "sigma": s["sigma"], "p_flip": s["p_flip"],
+           # behaviour: the data-collection controller; older rollouts predate the field
+           "behaviour": s.get("behaviour") or (s["policy"] + ("_noise" if s["sigma"] or s["p_flip"] else "")),
+           "base_policy": s.get("base_policy", s["policy"]),
+           "feature_version": version}
     stem = f"{s['building']}__{s['weather']}__{Path(npz_path).stem}"
     out_root = Path(out_root)
 
@@ -79,10 +93,18 @@ def encode_rollout(npz_path: str, out_root: str) -> dict:
     }
     for j, name in enumerate(ZONE_FEATURES):
         zone_cols[f"f_{name}"] = Z[:T, :, j].ravel()
-    zone_cols["a_damper"] = za["damper_cmd"].ravel().astype(np.float32)
-    zone_cols["a_reheat"] = za["reheat_cmd"].ravel().astype(np.float32)
+    # Commanded actions at t, each on a fixed physical scale (see ACTION_COLUMNS).
+    f32 = lambda x: np.asarray(x).ravel().astype(np.float32)  # noqa: E731
+    rep = lambda x: np.repeat(np.asarray(x), V)  # noqa: E731  # per-step value onto every zone row
+    zone_cols["a_damper"] = f32(np.clip((za["damper_cmd"] - 0.1) / 0.9, 0, 1))
+    zone_cols["a_reheat"] = f32(np.clip(za["reheat_cmd"], 0, 1))
     zone_cols["a_ahu_run"] = pa["ahu_run_cmd"][:, k].ravel().astype(np.int8)
-    zone_cols["a_ahu_sat_k"] = pa["sat_cmd_k"][:, k].ravel().astype(np.float32)
+    zone_cols["a_ahu_sat"] = f32((pa["sat_cmd_k"][:, k] - 293.15) / 5.0)
+    zone_cols["a_ahu_pressure"] = f32(pa["static_pressure_cmd_pa"][:, k] / 2000.0)
+    zone_cols["a_ahu_recirc"] = f32(np.clip(pa["recirc_cmd"][:, k], 0, 0.7) / 0.7)
+    zone_cols["a_water_temp"] = f32(rep((pa["water_temp_cmd_k"] - 330.0) / 20.0))
+    zone_cols["a_water_dp"] = f32(rep(pa["water_dp_cmd"] / 20.0))
+    zone_cols["a_pump_run"] = rep(pa["pump_run_cmd"]).astype(np.int8)
     zone_cols["temp_k"] = TK[:T].ravel()
     zone_cols["y_dtemp"] = (TK[1:] - TK[:T]).ravel()         # K over the next step
     zone_cols["y_dtemp_1h"] = np.concatenate(                 # K over the next hour
@@ -137,9 +159,10 @@ def encode_rollout(npz_path: str, out_root: str) -> dict:
     return {"stem": stem, "rows_zone": len(zdf), "rows_step": len(sdf)}
 
 
-def build(tag: str, workers: int = 4, force: bool = False) -> list[dict]:
+def build(tag: str, workers: int = 4, force: bool = False, version: int = FEATURE_VERSION,
+          out_tag: str | None = None) -> list[dict]:
     root = paths.ROLLOUTS_DIR / tag
-    out_root = FEATURES_DIR / tag
+    out_root = FEATURES_DIR / (out_tag or tag)
     jobs = []
     for npz in sorted(root.rglob("*.npz")):
         if not npz.with_suffix(".json").exists():
@@ -150,12 +173,13 @@ def build(tag: str, workers: int = 4, force: bool = False) -> list[dict]:
     print(f"{len(jobs)} rollout(s) to encode")
     done = []
     with ProcessPoolExecutor(max_workers=workers) as pool:
-        futs = {pool.submit(encode_rollout, j, str(out_root)): j for j in jobs}
+        futs = {pool.submit(encode_rollout, j, str(out_root), version): j for j in jobs}
         for i, f in enumerate(as_completed(futs), 1):
             res = f.result()
             done.append(res)
             print(f"  [{i}/{len(jobs)}] {res['stem']}: {res['rows_zone']:,} zone rows")
-    spec = {"zone_features": ZONE_FEATURES, "global_features": GLOBAL_FEATURES}
+    F = _encoder_module(version)
+    spec = {"version": version, "zone_features": F.ZONE_FEATURES, "global_features": F.GLOBAL_FEATURES}
     out_root.mkdir(parents=True, exist_ok=True)
     (out_root / "feature_spec.json").write_text(json.dumps(spec, indent=2))
     return done

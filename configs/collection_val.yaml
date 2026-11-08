@@ -1,0 +1,12 @@
+# Validation episodes with varied controllers (unseen buildings, unseen climates).
+# The plain val split only has pid_water, so it cannot tell whether a model
+# predicts the effect of actions pid_water would not take. These can.
+tag: diverse_val
+steps: 1008
+hold: 12
+seed: 23
+split: val
+episodes_per_building: 2
+behaviours:
+  pid_water_plant_random: 1
+  pid_water_explore: 1

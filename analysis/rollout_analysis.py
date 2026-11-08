@@ -186,7 +186,7 @@ if not DEBUG and not (step["split"] == "val").any():
 # Target: zone temperature change over the next hour. Train: kit buildings
 # (pid_water, clean + noisy). Test: val buildings in val climates (pid_water).
 FCOLS = [f"f_{c}" for c in ZONE_FEATURES]
-ACOLS = ["a_damper", "a_reheat", "a_ahu_run", "a_ahu_sat_k"]
+ACOLS = ["a_damper", "a_reheat", "a_ahu_run", "a_ahu_sat"]  # first report used v1 tables (a_ahu_sat_k in kelvin)
 GCOLS = [f"g_{c}" for c in GLOBAL_FEATURES]
 
 
